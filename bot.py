@@ -15,8 +15,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # =========================================================
 # НАСТРОЙКИ
 # =========================================================
-TOKEN = os.getenv("TOKEN")
-DIGISELLER_COOKIE = os.getenv("COOKIE")
+TOKEN = os.getenv("TOKEN") or "8568651712:AAHUlJCPzQy5KNko2Esu_BeuBpli6fwivuI"
+DIGISELLER_COOKIE = os.getenv("COOKIE") or "curr=WMZ; period=days; tabMessages1=buyers; lang=ru%2DRU; ASPSESSIONIDCSSBDSDR=JKALLGHDHHIDIFGOKKDJAMEP"
 
 DIGISELLER_NEGATIVE_URL = "https://my.digiseller.com/inside/responses.asp?gb=2&shop=-1"
 DIGISELLER_BASE_URL = "https://my.digiseller.com/inside/"
