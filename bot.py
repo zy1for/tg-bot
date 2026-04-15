@@ -3,12 +3,13 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Dict, List, Set
 
 import requests
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -25,11 +26,21 @@ CHECK_INTERVAL_SECONDS = 60
 USERS_FILE = "users.json"
 SENT_REVIEWS_FILE = "sent_reviews.json"
 ANNOUNCEMENTS_FILE = "announcements.json"
+SHIFT_STATUS_FILE = "shift_status.json"
+PROFILES_FILE = "profiles.json"
 
-# ВАЖНО:
-# сюда вставь свой Telegram user ID
-ADMIN_ID = 5384930958
+# =========================================================
+# АДМИНЫ
+# =========================================================
+ADMIN_IDS = [781922474, 135479524, 5384930958]
 
+# =========================================================
+# РАБОТНИКИ ПО ПЛАТФОРМАМ
+# =========================================================
+AI_WORKERS = [8225013907, 8177004956, 781922474]
+STEAM_WORKERS = [7135999120, 742038308]
+
+ALL_KNOWN_WORKERS = sorted(set(AI_WORKERS + STEAM_WORKERS))
 
 # =========================================================
 # ИНСТРУКЦИИ
@@ -96,7 +107,6 @@ DATA = {
             }
         }
     },
-
     "claude": {
         "title": "Claude",
         "items": {
@@ -188,7 +198,6 @@ DATA = {
             }
         }
     },
-
     "grok": {
         "title": "Grok",
         "items": {
@@ -209,7 +218,6 @@ DATA = {
             }
         }
     },
-
     "spotify": {
         "title": "Spotify",
         "items": {
@@ -229,114 +237,9 @@ DATA = {
                     "Используйте почту и пароль для входа\n"
                     "После этого вы сможете входить в Spotify напрямую — по почте и паролю, без использования Facebook."
                 )
-            },
-            "apple_email_password": {
-                "button": "Вход через Apple ID",
-                "text": (
-                    "Как привязать электронную почту и пароль к аккаунту Spotify, зарегистрированному через Apple ID:\n\n"
-                    "Если вы изначально создали аккаунт Spotify с помощью Apple ID, но теперь хотите входить через электронную почту и пароль, выполните следующие шаги:\n\n"
-                    "1. Войдите в аккаунт Spotify через Apple\n"
-                    "Перейдите на сайт: https://www.spotify.com/account\n\n"
-                    "Выберите вход через Apple ID и авторизуйтесь.\n\n"
-                    "2. Убедитесь, что в аккаунте указана действующая почта\n"
-                    "На странице «Обзор аккаунта» (Account overview) проверьте, какая электронная почта указана.\n\n"
-                    "Важно: если при регистрации вы выбрали опцию «Скрыть мой email» (Hide My Email), "
-                    "у вас будет случайный адрес от Apple (например, xyz123@privaterelay.appleid.com).\n\n"
-                    "Рекомендуется заменить его на ваш реальный адрес — для этого нажмите «Изменить» (Edit) рядом с полем email.\n\n"
-                    "3. Установите пароль\n"
-                    "Так как вы использовали Apple ID, пароль Spotify может не быть установлен. Чтобы его создать:\n\n"
-                    "Перейдите на страницу сброса пароля:\n"
-                    "https://www.spotify.com/password-reset/\n\n"
-                    "Введите ту почту, которая указана в вашем аккаунте Spotify "
-                    "(в том числе, если это адрес вида @privaterelay.appleid.com).\n\n"
-                    "Пройдите по ссылке из письма и задайте новый пароль.\n\n"
-                    "4. Вход через email и пароль\n"
-                    "После установки пароля вы сможете входить в Spotify напрямую, используя вашу электронную почту и пароль — "
-                    "без необходимости использовать Apple ID."
-                )
-            },
-            "google_email_password": {
-                "button": "Вход через Google",
-                "text": (
-                    "Как привязать почту и пароль к аккаунту Spotify (если используется вход через Google):\n\n"
-                    "Если вы ранее регистрировались в Spotify через Google, но теперь хотите использовать вход "
-                    "по электронной почте и паролю, выполните следующие шаги:\n\n"
-                    "1. Перейдите в настройки аккаунта\n"
-                    "Откройте сайт Spotify: https://www.spotify.com/account\n\n"
-                    "Войдите в свой аккаунт через Google, как обычно.\n\n"
-                    "2. Убедитесь, что в аккаунте указана электронная почта\n"
-                    "На странице «Обзор аккаунта» (Account overview) проверьте, указана ли ваша электронная почта.\n\n"
-                    "При необходимости вы можете изменить её в настройках.\n\n"
-                    "3. Установите пароль для входа\n"
-                    "Если вы регистрировались через Google, у вас может не быть установленного пароля. Чтобы его создать:\n\n"
-                    "Перейдите на страницу сброса пароля:\n"
-                    "https://www.spotify.com/password-reset/\n\n"
-                    "Введите адрес электронной почты, указанный в вашем аккаунте.\n\n"
-                    "Перейдите по ссылке в письме и задайте новый пароль.\n\n"
-                    "4. Используйте email и пароль для входа\n"
-                    "После установки пароля вы сможете входить в Spotify, используя вашу почту и заданный пароль — "
-                    "без необходимости использовать Google-аккаунт."
-                )
-            },
-            "payment_regions": {
-                "button": "Регионы подписок",
-                "text": (
-                    "🔴 Регион оплаты подписки:\n"
-                    "➖ Подписка Индивидуал 3-6 месяцев - Египет\n"
-                    "➖ Подписка Индивидуал 12 месяцев - Египет\n"
-                    "➖ Подписки 1 месяц Индивидуал, Дуо, Фемели - Нигерия\n"
-                    "➖ Подписки Дуо 3-6-12 месяцев - Египет\n"
-                    "➖ Подписки Platinum/Standard/Lite - Индия"
-                )
-            },
-            "lossless": {
-                "button": "Lossless уже доступен",
-                "text": (
-                    "Если у тебя уже Premium-подписка, возможно, lossless уже доступен — "
-                    "просто нужно проверить настройки и обновить приложение.\n"
-                    " • Тебе не обязательно менять на новый тариф, если lossless уже поддерживается в твоём Premium."
-                )
-            },
-            "duo_different_regions": {
-                "button": "Spotify Duo разные регионы",
-                "text": (
-                    "Как добавить второй аккаунт в Spotify Duo, если регионы разные\n\n"
-                    "ШАГ 1: Подготовь VPN с подключением к Нигерии\n"
-                    " • Используй любой VPN с нигерийским сервером:\n"
-                    " • Windscribe, Surfshark, ExpressVPN и т.п.\n"
-                    " • Важно: подключать VPN нужно на устройстве, где ты будешь менять регион второго аккаунта и принимать приглашение.\n\n"
-                    "⸻\n\n"
-                    "ШАГ 2: Измени регион второго аккаунта на Нигерию\n"
-                    " 1. Подключи VPN к Нигерии.\n"
-                    " 2. Зайди во второй аккаунт Spotify: spotify.com/account. (https://www.spotify.com/account)\n"
-                    " 3. Нажми Edit Profile / Редактировать профиль.\n"
-                    " 4. В поле Country / Страна выбери Nigeria.\n"
-                    " • Если поле недоступно — выйди из аккаунта и заново зайди под VPN, тогда оно появится.\n"
-                    " 5. Сохрани изменения.\n\n"
-                    "⸻\n\n"
-                    "ШАГ 3: Прими приглашение от Duo\n"
-                    " 1. На основном аккаунте (где Duo) зайди на: spotify.com/account/duo. (https://www.spotify.com/account/duo)\n"
-                    " 2. Нажми “Send invite” / Отправить приглашение.\n"
-                    " 3. Введи email второго аккаунта и отправь.\n"
-                    " 4. На втором аккаунте:\n"
-                    " • Открой письмо с приглашением.\n"
-                    " • Перейди по ссылке.\n"
-                    " • VPN на этом устройстве должен быть тоже включён и настроен на Нигерию.\n"
-                    " • Введи тот же адрес, что указан в Duo (например: 12 Adebayo Street, Lagos).\n"
-                    " • Подтверди.\n\n"
-                    "⸻\n\n"
-                    "ВАЖНО:\n"
-                    " • Spotify проверяет, чтобы оба аккаунта были в одной стране и на одном адресе.\n"
-                    " • Если VPN не используется — регион и адрес не совпадут, и добавление не сработает.\n"
-                    " • Если пишет, что невозможно присоединиться — проверь:\n"
-                    " • Регион второго аккаунта (в настройках),\n"
-                    " • Наличие VPN в момент принятия,\n"
-                    " • Адрес — должен быть в точности такой же."
-                )
             }
         }
     },
-
     "kling": {
         "title": "Kling",
         "items": {
@@ -348,17 +251,9 @@ DATA = {
                     "В открывшемся окне выбрать подходящую подписку и нажать по ней\n"
                     "Как откроется окно оплаты скинуть в чат"
                 )
-            },
-            "cancel_plan": {
-                "button": "Отменить автооплату",
-                "text": (
-                    "Пожалуйста отмените план нажав по Manage plan затем cancel plan указав любой из причин. "
-                    "Это действие не отменит саму подписку а следующую оплату. Надеемся на ваше понимание"
-                )
             }
         }
     },
-
     "midjourney": {
         "title": "Midjourney",
         "items": {
@@ -387,9 +282,8 @@ DATA = {
     }
 }
 
-
 # =========================================================
-# ФУНКЦИИ ХРАНЕНИЯ
+# ХРАНЕНИЕ
 # =========================================================
 def load_json_file(path: str, default):
     if not os.path.exists(path):
@@ -438,36 +332,43 @@ def save_announcements(data: Dict[str, dict]) -> None:
     save_json_file(ANNOUNCEMENTS_FILE, data)
 
 
+def load_shift_status() -> Dict[str, bool]:
+    return load_json_file(SHIFT_STATUS_FILE, {})
+
+
+def save_shift_status(data: Dict[str, bool]) -> None:
+    save_json_file(SHIFT_STATUS_FILE, data)
+
+
+def load_profiles() -> Dict[str, dict]:
+    return load_json_file(PROFILES_FILE, {})
+
+
+def save_profiles(data: Dict[str, dict]) -> None:
+    save_json_file(PROFILES_FILE, data)
+
+
 USERS: Set[int] = load_users()
 SENT_REVIEWS: Set[str] = load_sent_reviews()
 ANNOUNCEMENTS: Dict[str, dict] = load_announcements()
-
+SHIFT_STATUS: Dict[str, bool] = load_shift_status()
+USER_PROFILES: Dict[str, dict] = load_profiles()
 
 # =========================================================
 # КЛАВИАТУРЫ
 # =========================================================
 def services_keyboard():
     builder = InlineKeyboardBuilder()
-
     for service_key, service_data in DATA.items():
-        builder.button(
-            text=service_data["title"],
-            callback_data=f"service:{service_key}"
-        )
-
+        builder.button(text=service_data["title"], callback_data=f"service:{service_key}")
     builder.adjust(2)
     return builder.as_markup()
 
 
 def instructions_keyboard(service_key: str):
     builder = InlineKeyboardBuilder()
-
     for item_key, item_data in DATA[service_key]["items"].items():
-        builder.button(
-            text=item_data["button"],
-            callback_data=f"item:{service_key}:{item_key}"
-        )
-
+        builder.button(text=item_data["button"], callback_data=f"item:{service_key}:{item_key}")
     builder.button(text="⬅️ Назад", callback_data="back_main")
     builder.adjust(1)
     return builder.as_markup()
@@ -486,6 +387,69 @@ def acknowledge_keyboard(announcement_id: str):
     builder.button(text="✅ Ознакомлен", callback_data=f"ack:{announcement_id}")
     builder.adjust(1)
     return builder.as_markup()
+
+
+# =========================================================
+# HELPER
+# =========================================================
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+def update_profile_from_user(user) -> None:
+    user_id = str(user.id)
+    USER_PROFILES[user_id] = {
+        "username": user.username or "",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    save_profiles(USER_PROFILES)
+
+
+def get_profile_text(user_id: int) -> str:
+    profile = USER_PROFILES.get(str(user_id), {})
+    username = profile.get("username") or "нет"
+    first_name = profile.get("first_name") or ""
+    last_name = profile.get("last_name") or ""
+    full_name = f"{first_name} {last_name}".strip() or "не указано"
+    shift = "на смене" if SHIFT_STATUS.get(str(user_id), False) else "не на смене"
+    return f"ID: {user_id} | @{username} | {full_name} | {shift}"
+
+
+def get_platform_users(platform: str) -> List[int]:
+    platform = platform.lower()
+    if platform == "ai":
+        return AI_WORKERS
+    if platform == "steam":
+        return STEAM_WORKERS
+    if platform == "all":
+        return sorted(set(AI_WORKERS + STEAM_WORKERS))
+    return []
+
+
+def get_deadline_text_for_user(user_id: int) -> str:
+    if SHIFT_STATUS.get(str(user_id), False):
+        return "⏰ Срок ознакомления: в течение 1 часа, так как вы отмечены как сотрудник на смене."
+    return "⏰ Срок ознакомления: до начала вашей следующей смены."
+
+
+def admin_commands_text() -> str:
+    return (
+        "👑 Список команд администратора\n\n"
+        "/admin — список админ-команд\n"
+        "/users — количество активированных пользователей\n"
+        "/list_users — список пользователей бота с ID\n"
+        "/workers_ai — список AI-воркеров\n"
+        "/workers_steam — список Steam-воркеров\n"
+        "/news <ai|steam|all> <текст> — рассылка новости по платформе\n"
+        "/fine <user_id> <сумма> <причина> — отправить штраф сотруднику\n\n"
+        "Команды работников:\n"
+        "/shift_on — отметить себя на смене\n"
+        "/shift_off — снять себя со смены\n"
+        "/start — активация бота\n"
+        "/id — показать свой ID"
+    )
 
 
 # =========================================================
@@ -531,10 +495,7 @@ def get_negative_review_links() -> List[Dict[str, str]]:
         if not href.startswith("http"):
             full_link = DIGISELLER_BASE_URL + href.lstrip("/")
 
-        found.append({
-            "id": review_id,
-            "link": full_link
-        })
+        found.append({"id": review_id, "link": full_link})
 
     return found
 
@@ -605,11 +566,7 @@ def build_review_message(review: Dict[str, str]) -> str:
 async def broadcast_to_all_users(bot: Bot, text: str) -> None:
     for user_id in USERS:
         try:
-            await bot.send_message(
-                chat_id=user_id,
-                text=text,
-                disable_web_page_preview=True
-            )
+            await bot.send_message(chat_id=user_id, text=text, disable_web_page_preview=True)
         except Exception as e:
             logging.warning(f"Не удалось отправить пользователю {user_id}: {e}")
 
@@ -656,6 +613,8 @@ async def start_handler(message: Message):
     last_name = message.from_user.last_name or ""
     full_name = f"{first_name} {last_name}".strip()
 
+    update_profile_from_user(message.from_user)
+
     is_new = user_id not in USERS
     if is_new:
         USERS.add(user_id)
@@ -677,56 +636,174 @@ async def start_handler(message: Message):
         f"Статус: {'Новый пользователь' if is_new else 'Повторный /start'}"
     )
 
-    try:
-        await message.bot.send_message(ADMIN_ID, admin_text)
-    except Exception as e:
-        logging.warning(f"Не удалось отправить уведомление админу о /start: {e}")
+    for admin_id in ADMIN_IDS:
+        try:
+            await message.bot.send_message(admin_id, admin_text)
+        except Exception as e:
+            logging.warning(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
 
 async def id_handler(message: Message):
     await message.answer(f"Ваш user ID: {message.chat.id}")
 
 
+async def admin_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+    await message.answer(admin_commands_text())
+
+
 async def users_count_handler(message: Message):
-    if message.chat.id != ADMIN_ID:
+    if not is_admin(message.chat.id):
         await message.answer("У вас нет доступа к этой команде.")
         return
     await message.answer(f"Активированных пользователей: {len(USERS)}")
 
 
-async def announce_handler(message: Message):
-    if message.chat.id != ADMIN_ID:
+async def list_users_handler(message: Message):
+    if not is_admin(message.chat.id):
         await message.answer("У вас нет доступа к этой команде.")
         return
 
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование:\n/announce ваш текст")
+    if not USERS:
+        await message.answer("Пользователей пока нет.")
         return
 
-    announcement_text = parts[1]
-    announcement_id = str(int(asyncio.get_event_loop().time() * 1000))
+    lines = ["📋 Пользователи бота:\n"]
+    for user_id in sorted(USERS):
+        lines.append(get_profile_text(user_id))
 
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        for chunk_start in range(0, len(text), 3500):
+            await message.answer(text[chunk_start:chunk_start + 3500])
+    else:
+        await message.answer(text)
+
+
+async def workers_ai_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    lines = ["🤖 AI-воркеры:\n"]
+    for user_id in AI_WORKERS:
+        lines.append(get_profile_text(user_id))
+    await message.answer("\n".join(lines))
+
+
+async def workers_steam_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    lines = ["🎮 Steam-воркеры:\n"]
+    for user_id in STEAM_WORKERS:
+        lines.append(get_profile_text(user_id))
+    await message.answer("\n".join(lines))
+
+
+async def shift_on_handler(message: Message):
+    user_id = message.chat.id
+    SHIFT_STATUS[str(user_id)] = True
+    save_shift_status(SHIFT_STATUS)
+    update_profile_from_user(message.from_user)
+    await message.answer("🟢 Вы отмечены как сотрудник на смене.")
+
+
+async def shift_off_handler(message: Message):
+    user_id = message.chat.id
+    SHIFT_STATUS[str(user_id)] = False
+    save_shift_status(SHIFT_STATUS)
+    update_profile_from_user(message.from_user)
+    await message.answer("🔴 Вы отмечены как сотрудник вне смены.")
+
+
+async def news_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3:
+        await message.answer(
+            "Использование:\n"
+            "/news ai текст\n"
+            "/news steam текст\n"
+            "/news all текст"
+        )
+        return
+
+    platform = parts[1].lower()
+    news_text = parts[2]
+
+    target_users = get_platform_users(platform)
+    if not target_users:
+        await message.answer("Платформа не найдена. Используй: ai, steam, all")
+        return
+
+    announcement_id = str(int(asyncio.get_event_loop().time() * 1000))
     ANNOUNCEMENTS[announcement_id] = {
-        "text": announcement_text,
+        "text": news_text,
+        "platform": platform,
         "acked_by": []
     }
     save_announcements(ANNOUNCEMENTS)
 
-    success_count = 0
-
-    for user_id in USERS:
+    sent_count = 0
+    for user_id in target_users:
         try:
+            deadline_text = get_deadline_text_for_user(user_id)
             await message.bot.send_message(
                 user_id,
-                f"📢 Новая информация от администратора\n\n{announcement_text}",
+                f"📢 Новая информация от администратора\n"
+                f"Платформа: {platform.upper()}\n\n"
+                f"{news_text}\n\n"
+                f"{deadline_text}",
                 reply_markup=acknowledge_keyboard(announcement_id)
             )
-            success_count += 1
+            sent_count += 1
         except Exception as e:
-            logging.warning(f"Не удалось отправить объявление пользователю {user_id}: {e}")
+            logging.warning(f"Не удалось отправить новость пользователю {user_id}: {e}")
 
-    await message.answer(f"✅ Сообщение отправлено.\nПолучателей: {success_count}")
+    await message.answer(
+        f"✅ Новость отправлена.\n"
+        f"Платформа: {platform}\n"
+        f"Получателей: {sent_count}"
+    )
+
+
+async def fine_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    parts = message.text.split(maxsplit=3)
+    if len(parts) < 4:
+        await message.answer("Использование:\n/fine user_id сумма причина")
+        return
+
+    try:
+        target_user_id = int(parts[1])
+    except ValueError:
+        await message.answer("Неверный user_id.")
+        return
+
+    amount = parts[2]
+    reason = parts[3]
+
+    fine_text = (
+        "⚠️ Вам назначен штраф\n\n"
+        f"Сумма штрафа: {amount}\n"
+        f"Причина: {reason}"
+    )
+
+    try:
+        await message.bot.send_message(target_user_id, fine_text)
+        await message.answer(f"✅ Штраф отправлен пользователю {target_user_id}.")
+    except Exception as e:
+        await message.answer(f"Не удалось отправить штраф: {e}")
 
 
 async def acknowledge_handler(callback: CallbackQuery):
@@ -737,10 +814,7 @@ async def acknowledge_handler(callback: CallbackQuery):
         return
 
     user_id = callback.from_user.id
-    username = callback.from_user.username
-    first_name = callback.from_user.first_name or ""
-    last_name = callback.from_user.last_name or ""
-    full_name = f"{first_name} {last_name}".strip()
+    update_profile_from_user(callback.from_user)
 
     acked_by = ANNOUNCEMENTS[announcement_id].get("acked_by", [])
 
@@ -758,23 +832,19 @@ async def acknowledge_handler(callback: CallbackQuery):
         pass
 
     await callback.answer("Принято")
+    await callback.message.answer("✅ Вы подтвердили ознакомление.")
 
-    try:
-        await callback.message.answer("✅ Вы подтвердили ознакомление.")
-    except Exception:
-        pass
+    notify_text = (
+        "✅ Сотрудник ознакомился с информацией\n\n"
+        f"{get_profile_text(user_id)}\n"
+        f"Текст: {ANNOUNCEMENTS[announcement_id]['text'][:300]}"
+    )
 
-    try:
-        await callback.bot.send_message(
-            ADMIN_ID,
-            "✅ Сотрудник ознакомился с информацией\n\n"
-            f"ID: {user_id}\n"
-            f"Username: @{username if username else 'нет'}\n"
-            f"Имя: {full_name or 'не указано'}\n"
-            f"Текст: {ANNOUNCEMENTS[announcement_id]['text'][:300]}"
-        )
-    except Exception as e:
-        logging.warning(f"Не удалось отправить админу подтверждение: {e}")
+    for admin_id in ADMIN_IDS:
+        try:
+            await callback.bot.send_message(admin_id, notify_text)
+        except Exception as e:
+            logging.warning(f"Не удалось отправить подтверждение админу {admin_id}: {e}")
 
 
 async def service_handler(callback: CallbackQuery):
@@ -829,16 +899,23 @@ async def main():
     dp = Dispatcher()
 
     dp.message.register(start_handler, CommandStart())
-    dp.message.register(id_handler, F.text == "/id")
-    dp.message.register(users_count_handler, F.text == "/users")
-    dp.message.register(announce_handler, F.text.startswith("/announce"))
+    dp.message.register(id_handler, Command("id"))
+    dp.message.register(admin_handler, Command("admin"))
+    dp.message.register(users_count_handler, Command("users"))
+    dp.message.register(list_users_handler, Command("list_users"))
+    dp.message.register(workers_ai_handler, Command("workers_ai"))
+    dp.message.register(workers_steam_handler, Command("workers_steam"))
+    dp.message.register(shift_on_handler, Command("shift_on"))
+    dp.message.register(shift_off_handler, Command("shift_off"))
+    dp.message.register(news_handler, Command("news"))
+    dp.message.register(fine_handler, Command("fine"))
+
     dp.callback_query.register(acknowledge_handler, F.data.startswith("ack:"))
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
     dp.callback_query.register(item_handler, F.data.startswith("item:"))
     dp.callback_query.register(back_main_handler, F.data == "back_main")
 
     asyncio.create_task(monitor_negative_reviews(bot))
-
     await dp.start_polling(bot)
 
 
