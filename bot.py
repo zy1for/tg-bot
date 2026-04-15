@@ -15,12 +15,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # =========================================================
 # НАСТРОЙКИ
 # =========================================================
-TOKEN = "8568651712:AAHUlJCPzQy5KNko2Esu_BeuBpli6fwivuI"
-
-DIGISELLER_COOKIE = (
-    "curr=WMZ; period=days; tabMessages1=buyers; "
-    "lang=ru%2DRU; ASPSESSIONIDCSSBDSDR=HAHELGHDJBGGCICBMFJNLBIJ"
-)
+TOKEN = os.getenv("8568651712:AAHUlJCPzQy5KNko2Esu_BeuBpli6fwivuI")
+DIGISELLER_COOKIE = os.getenv("curr=WMZ; period=days; tabMessages1=buyers; lang=ru%2DRU; ASPSESSIONIDCSSBDSDR=JKALLGHDHHIDIFGOKKDJAMEP")
 
 DIGISELLER_NEGATIVE_URL = "https://my.digiseller.com/inside/responses.asp?gb=2&shop=-1"
 DIGISELLER_BASE_URL = "https://my.digiseller.com/inside/"
@@ -28,6 +24,12 @@ CHECK_INTERVAL_SECONDS = 60
 
 USERS_FILE = "users.json"
 SENT_REVIEWS_FILE = "sent_reviews.json"
+ANNOUNCEMENTS_FILE = "announcements.json"
+
+# ВАЖНО:
+# сюда вставь свой Telegram user ID
+ADMIN_ID = 5384930958
+
 
 # =========================================================
 # ИНСТРУКЦИИ
@@ -385,8 +387,9 @@ DATA = {
     }
 }
 
+
 # =========================================================
-# ФАЙЛЫ ХРАНЕНИЯ
+# ФУНКЦИИ ХРАНЕНИЯ
 # =========================================================
 def load_json_file(path: str, default):
     if not os.path.exists(path):
@@ -427,8 +430,18 @@ def save_sent_reviews(review_ids: Set[str]) -> None:
     save_json_file(SENT_REVIEWS_FILE, sorted(review_ids))
 
 
+def load_announcements() -> Dict[str, dict]:
+    return load_json_file(ANNOUNCEMENTS_FILE, {})
+
+
+def save_announcements(data: Dict[str, dict]) -> None:
+    save_json_file(ANNOUNCEMENTS_FILE, data)
+
+
 USERS: Set[int] = load_users()
 SENT_REVIEWS: Set[str] = load_sent_reviews()
+ANNOUNCEMENTS: Dict[str, dict] = load_announcements()
+
 
 # =========================================================
 # КЛАВИАТУРЫ
@@ -467,13 +480,21 @@ def back_to_list_keyboard(service_key: str):
     builder.adjust(1)
     return builder.as_markup()
 
+
+def acknowledge_keyboard(announcement_id: str):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Ознакомлен", callback_data=f"ack:{announcement_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 # =========================================================
 # DIGISELLER
 # =========================================================
 def digiseller_headers() -> Dict[str, str]:
     return {
         "User-Agent": "Mozilla/5.0",
-        "Cookie": DIGISELLER_COOKIE,
+        "Cookie": DIGISELLER_COOKIE or "",
         "Referer": "https://my.digiseller.com/",
     }
 
@@ -577,6 +598,7 @@ def build_review_message(review: Dict[str, str]) -> str:
         f"{review['review_text']}"
     )
 
+
 # =========================================================
 # РАССЫЛКА
 # =========================================================
@@ -597,6 +619,11 @@ async def monitor_negative_reviews(bot: Bot):
 
     while True:
         try:
+            if not DIGISELLER_COOKIE:
+                logging.warning("COOKIE не задана")
+                await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+                continue
+
             reviews = await asyncio.to_thread(get_negative_review_links)
 
             for review_meta in reviews:
@@ -618,13 +645,19 @@ async def monitor_negative_reviews(bot: Bot):
 
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
+
 # =========================================================
 # ХЕНДЛЕРЫ
 # =========================================================
 async def start_handler(message: Message):
     user_id = message.chat.id
+    username = message.from_user.username
+    first_name = message.from_user.first_name or ""
+    last_name = message.from_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
 
-    if user_id not in USERS:
+    is_new = user_id not in USERS
+    if is_new:
         USERS.add(user_id)
         save_users(USERS)
 
@@ -636,13 +669,112 @@ async def start_handler(message: Message):
         reply_markup=services_keyboard()
     )
 
+    admin_text = (
+        "👤 Сотрудник нажал /start\n\n"
+        f"ID: {user_id}\n"
+        f"Username: @{username if username else 'нет'}\n"
+        f"Имя: {full_name or 'не указано'}\n"
+        f"Статус: {'Новый пользователь' if is_new else 'Повторный /start'}"
+    )
+
+    try:
+        await message.bot.send_message(ADMIN_ID, admin_text)
+    except Exception as e:
+        logging.warning(f"Не удалось отправить уведомление админу о /start: {e}")
+
 
 async def id_handler(message: Message):
     await message.answer(f"Ваш user ID: {message.chat.id}")
 
 
 async def users_count_handler(message: Message):
+    if message.chat.id != ADMIN_ID:
+        await message.answer("У вас нет доступа к этой команде.")
+        return
     await message.answer(f"Активированных пользователей: {len(USERS)}")
+
+
+async def announce_handler(message: Message):
+    if message.chat.id != ADMIN_ID:
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование:\n/announce ваш текст")
+        return
+
+    announcement_text = parts[1]
+    announcement_id = str(int(asyncio.get_event_loop().time() * 1000))
+
+    ANNOUNCEMENTS[announcement_id] = {
+        "text": announcement_text,
+        "acked_by": []
+    }
+    save_announcements(ANNOUNCEMENTS)
+
+    success_count = 0
+
+    for user_id in USERS:
+        try:
+            await message.bot.send_message(
+                user_id,
+                f"📢 Новая информация от администратора\n\n{announcement_text}",
+                reply_markup=acknowledge_keyboard(announcement_id)
+            )
+            success_count += 1
+        except Exception as e:
+            logging.warning(f"Не удалось отправить объявление пользователю {user_id}: {e}")
+
+    await message.answer(f"✅ Сообщение отправлено.\nПолучателей: {success_count}")
+
+
+async def acknowledge_handler(callback: CallbackQuery):
+    _, announcement_id = callback.data.split(":", 1)
+
+    if announcement_id not in ANNOUNCEMENTS:
+        await callback.answer("Сообщение не найдено", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+    first_name = callback.from_user.first_name or ""
+    last_name = callback.from_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
+
+    acked_by = ANNOUNCEMENTS[announcement_id].get("acked_by", [])
+
+    if user_id in acked_by:
+        await callback.answer("Вы уже подтвердили", show_alert=True)
+        return
+
+    acked_by.append(user_id)
+    ANNOUNCEMENTS[announcement_id]["acked_by"] = acked_by
+    save_announcements(ANNOUNCEMENTS)
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await callback.answer("Принято")
+
+    try:
+        await callback.message.answer("✅ Вы подтвердили ознакомление.")
+    except Exception:
+        pass
+
+    try:
+        await callback.bot.send_message(
+            ADMIN_ID,
+            "✅ Сотрудник ознакомился с информацией\n\n"
+            f"ID: {user_id}\n"
+            f"Username: @{username if username else 'нет'}\n"
+            f"Имя: {full_name or 'не указано'}\n"
+            f"Текст: {ANNOUNCEMENTS[announcement_id]['text'][:300]}"
+        )
+    except Exception as e:
+        logging.warning(f"Не удалось отправить админу подтверждение: {e}")
 
 
 async def service_handler(callback: CallbackQuery):
@@ -683,10 +815,14 @@ async def back_main_handler(callback: CallbackQuery):
     )
     await callback.answer()
 
+
 # =========================================================
 # ЗАПУСК
 # =========================================================
 async def main():
+    if not TOKEN:
+        raise ValueError("TOKEN не задан")
+
     logging.basicConfig(level=logging.INFO)
 
     bot = Bot(token=TOKEN)
@@ -695,6 +831,8 @@ async def main():
     dp.message.register(start_handler, CommandStart())
     dp.message.register(id_handler, F.text == "/id")
     dp.message.register(users_count_handler, F.text == "/users")
+    dp.message.register(announce_handler, F.text.startswith("/announce"))
+    dp.callback_query.register(acknowledge_handler, F.data.startswith("ack:"))
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
     dp.callback_query.register(item_handler, F.data.startswith("item:"))
     dp.callback_query.register(back_main_handler, F.data == "back_main")
