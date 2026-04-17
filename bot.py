@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta, time, date
+from datetime import datetime, timedelta, time
 from typing import Dict, List, Set, Tuple
 from zoneinfo import ZoneInfo
 
@@ -12,7 +12,12 @@ import requests
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # =========================================================
@@ -51,7 +56,7 @@ ADMIN_IDS = [781922474, 135479524, 5384930958]
 # =========================================================
 # ВОРКЕРЫ ПО ПЛАТФОРМАМ
 # =========================================================
-AI_WORKERS = [8225013907, 8177004956, 781922474, 5384930958, 1920853728, 844359525, 1294614140, 135479524, 1323864732]
+AI_WORKERS = [8225013907, 8177004956, 781922474, 5384930958, 1920853728, 844359525, 1294614140, 135479524, 1323864732, 7443195793]
 STEAM_WORKERS = [7135999120, 742038308, 5384930958, 135479524, 1312771702, 5493517866]
 
 # =========================================================
@@ -131,6 +136,47 @@ DATA = {
                     "➖ Перейдите по ссылке https://chatgpt.com/api/auth/session\n"
                     "➖ Скопируйте весь текст, который откроется на странице.\n"
                     "Отправьте содержимое ссылки в чат."
+                )
+            },
+            "euro_payment_link": {
+                "button": "💶 Ссылка на оплату в евро",
+                "text": (
+                    "Сейчас у вас на аккаунте стоит оплата в Евро - нужно сменить на доллары либо тенге, "
+                    "и заново сформировать ссылку на оплату. Мы оплачиваем только в долларовой/тенге валюте."
+                )
+            },
+            "get_activation_token": {
+                "button": "🔑 Получить токен для активации",
+                "text": (
+                    "➖ Зайдите в свой аккаунт ChatGPT (если ещё не вошли — просто авторизуйтесь).\n"
+                    "➖ Перейдите по ссылке https://chatgpt.com/api/auth/session\n"
+                    "➖ Скопируйте весь текст, который откроется на странице.\n"
+                    "Отправьте содержимое ссылки в чат"
+                )
+            },
+            "payment_card_link": {
+                "button": "💳 Получить ссылку на оплату по карте",
+                "text": (
+                    "Пожалуйста, выполните следующие шаги:\n"
+                    "1. Зайдите в свой аккаунт на официальном сайте.\n"
+                    "2. Перейдите в раздел «Подписки».\n"
+                    "3. Выберите нужный план.\n"
+                    "4. В окне ввода данных карты скопируйте URL (ссылку из адресной строки браузера).\n"
+                    "5. Отправьте её сюда в чат — я продолжу оформление."
+                )
+            },
+            "appstore": {
+                "button": "📱 Инструкция App Store",
+                "text": (
+                    "Откройте App Store на Айфон\n"
+                    "2. Нажмите на иконку профиля\n"
+                    "3. Пролистайте вниз и выйдите из своего аккаунта\n"
+                    "4. Введите данные:\n\n"
+                    "Логин:\n"
+                    "Пароль:\n\n"
+                    "5. Введите в поиске App Store: ChatGPT\n"
+                    "6. Скачайте приложение\n"
+                    "7. Выйдите из нашего аккаунта"
                 )
             }
         }
@@ -226,26 +272,6 @@ DATA = {
             }
         }
     },
-    "grok": {
-        "title": "🚀 Grok",
-        "items": {
-            "technical_issues": {
-                "button": "🛠 Технические сбои",
-                "text": (
-                    "Здравствуйте!\n\n"
-                    "В настоящий момент в сервисе Grok наблюдаются временные технические сбои, "
-                    "из-за чего возникают сложности с оплатой подписок.\n\n"
-                    "В связи с этим выполнение заказа может занять до 24–48 часов — до полного устранения проблемы со стороны сервиса.\n\n"
-                    "Вы можете выбрать один из вариантов:\n"
-                    "• ожидание активации подписки;\n"
-                    "• полный возврат средств.\n\n"
-                    "Если вы выбираете возврат, пожалуйста, сообщите нам об этом — мы сразу отправим заявку, "
-                    "и средства поступят вам в течение 24–48 часов.\n\n"
-                    "Благодарим за понимание и терпение 🤝"
-                )
-            }
-        }
-    },
     "spotify": {
         "title": "🎵 Spotify",
         "items": {
@@ -318,19 +344,31 @@ DATA = {
                 "button": "🌍 Регионы подписок",
                 "text": (
                     "🔴 Регион оплаты подписки:\n"
-                    "➖ Подписка Индивидуал 3-6 месяцев - Египет\n"
-                    "➖ Подписка Индивидуал 12 месяцев - Египет\n"
-                    "➖ Подписки 1 месяц Индивидуал, Дуо, Фемели - Нигерия\n"
-                    "➖ Подписки Дуо 3-6-12 месяцев - Египет\n"
-                    "➖ Подписки Platinum/Standard/Lite - Индия"
+                    "➖ Подписки Family (Все сроки) - Нигерия (Есть DJ AI и Подкасты)\n"
+                    "➖ Подписка Индивидуал (Все сроки) - Нигерия (Есть DJ AI и Подкасты)\n"
+                    "➖ Подписки Дуо (Все сроки) - Нигерия (Есть DJ AI и Подкасты)\n"
+                    "➖ Подписки Platinum/Standard/Lite - Индия (подкасты есть на всех, DJ AI — только в Platinum)"
                 )
             },
-            "lossless": {
-                "button": "🎧 Lossless уже доступен",
+            "incorrect_data": {
+                "button": "❌ Данные некорректны",
                 "text": (
-                    "Если у тебя уже Premium-подписка, возможно, lossless уже доступен — "
-                    "просто нужно проверить настройки и обновить приложение.\n"
-                    " • Тебе не обязательно менять на новый тариф, если lossless уже поддерживается в твоём Premium."
+                    "Неверный логин или пароль. Ссылка на сброс пароля:\n\n"
+                    "https://accounts.spotify.com/ru/password-reset"
+                )
+            },
+            "appstore": {
+                "button": "📱 Инструкция App Store",
+                "text": (
+                    "Откройте App Store на Айфон\n"
+                    "2. Нажмите на иконку профиля\n"
+                    "3. Пролистайте вниз и выйдите из своего аккаунта\n"
+                    "4. Введите данные:\n\n"
+                    "Логин:\n"
+                    "Пароль:\n\n"
+                    "5. Введите в поиске App Store: Spotify\n"
+                    "6. Скачайте приложение\n"
+                    "7. Выйдите из нашего аккаунта"
                 )
             },
             "duo_different_regions": {
@@ -389,6 +427,86 @@ DATA = {
                 "text": (
                     "Пожалуйста отмените план нажав по Manage plan затем cancel plan указав любой из причин. "
                     "Это действие не отменит саму подписку а следующую оплату. Надеемся на ваше понимание"
+                )
+            },
+            "registration_account": {
+                "button": "📩 Регистрация аккаунта",
+                "text": (
+                    "На наши почты Outlook не поступают коды верификации, сможете предложить любую из своих почт (адрес) для регистрации?"
+                )
+            }
+        }
+    },
+    "doplata": {
+        "title": "💰 Доплата",
+        "items": {
+            "plati_doplata": {
+                "button": "🟦 Доплата Plati",
+                "text": "Доплата plati: https://plati.market/itm/5457373"
+            },
+            "ggsel_doplata": {
+                "button": "🟨 Доплата GGsel",
+                "text": "Доплата ggsel: https://ggsel.net/catalog/product/doplata-za-tovar-ili-uslugu-102090136"
+            }
+        }
+    },
+    "ready_templates": {
+        "title": "✅ Шаблоны готовности",
+        "items": {
+            "ggsel_ready": {
+                "button": "🟨 GGsel",
+                "text": (
+                    "Гoтoвo! Бyдeм блaгoдapны ВaшeМy oтзывy, oни пoмoгaют cтaть нaм лyчшe.\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+                    "⚠️ Вaжнo: ecли в пpoцecce выпoлнeния вoзниклa зaдepжкa, oнa нe вceгдa cвязaнa c нaшeй paбoтoй \n"
+                    "В пикoвыe чacы зaкaзы oбpaбaтывaютcя дoльшe из-зa выcoкoй зaгpyзки, a тaкжe вoзмoжныx тexничecкиx или плaтёжныx пpoблeм внyтpи cepвиca.\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+                    "Нaши тoвapы:\n"
+                    "🟥 ChatGPT 5 Plus — https://ggsel.net/catalog/product/4437281\n"
+                    "🟩 Spotify Premium — https://ggsel.net/catalog/product/4881347\n"
+                    "🟫 Perplexity Pro (12 мec/449Р) — https://ggsel.net/catalog/product/5345557\n"
+                    "🟨 Midjourney V7 — https://ggsel.net/catalog/product/101602330\n"
+                    "🟪 Cursor AI PRO — https://ggsel.net/catalog/product/101606985\n"
+                    "🟪 Claude AI PRO — https://ggsel.net/catalog/product/5479179\n"
+                    "🟥 YouTube Premium — https://ggsel.net/catalog/product/102100531\n"
+                    "🟩 Xbox Game Pass (1–12м) — https://ggsel.net/catalog/product/4437286\n"
+                    "⭕️ Вce тoвapы - https://ggsel.net/sellers/164256\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖"
+                )
+            },
+            "plati_ready": {
+                "button": "🟦 Plati",
+                "text": (
+                    "🎉 Готово! Будем благодарны Вашему отзыву, они помогают стать нам лучше.\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+                    "🎁 Промокод на следующую покупку услуги cо скидкой для Вас и Ваших друзей: 139ECB630E7B4FE9\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+                    "Наши товары:\n"
+                    "🟥 ChatGPT 5.2 Plus — https://plati.ru/itm/4306654\n"
+                    "🟩 Spotify Premium — https://plati.ru/itm/4009731\n"
+                    "🟫 Perplexity Pro (12 меc/1.5$) — https://plati.ru/itm/5345532\n"
+                    "🟨 Midjourney V7 — https://plati.ru/itm/4252725\n"
+                    "🟪 Cursor AI PRO — https://plati.ru/itm/5070972\n"
+                    "🟪 Claude AI PRO — https://plati.ru/itm/4873214\n"
+                    "🟥 YouTube Premium — https://plati.ru/itm/5040347\n"
+                    "🟦 Смена региона Steam — https://plati.ru/itm/3525355\n"
+                    "⬛️ Пополнение Steam — https://plati.ru/itm/3343799\n"
+                    "🟩 Xbox Game Pass (1–12м) — https://plati.ru/itm/3853868\n"
+                    "⭕️ Все товары - https://fursov.me\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+                    "📢 Акции и новости → https://t.me/+cFsmUDuAkPQ5ZGYy\n"
+                    "➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖\n"
+                    "🌍 Ищете VPN для ChatGPT?\n"
+                    "Юзай Bebra VPN — стабильно работает с ChatGPT, Instagram, YouTube и не только.\n"
+                    "💥 По нашей ссылке 2 месяца по цене 1!\n"
+                    "👉 https://clck.ru/3R27mL"
+                )
+            },
+            "fanpay_ready": {
+                "button": "🟧 FanPay",
+                "text": (
+                    "Готово! Будем благодарны Вашему отзыву, они помогают стать нам лучше\n\n"
+                    "Не забудьте подтвердить сделку, пожалуйста!"
                 )
             }
         }
@@ -556,100 +674,7 @@ PENDING_NEWS: Dict[str, dict] = load_pending_news()
 REQUESTS: List[dict] = load_requests()
 
 # =========================================================
-# КЛАВИАТУРЫ
-# =========================================================
-def services_keyboard():
-    builder = InlineKeyboardBuilder()
-    for service_key, service_data in DATA.items():
-        builder.button(text=service_data["title"], callback_data=f"service:{service_key}")
-    builder.button(text="👤 Мой профиль", callback_data="my_profile")
-    builder.button(text="🚨 Нужен админ", callback_data="need_admin")
-    builder.adjust(2)
-    return builder.as_markup()
-
-
-def instructions_keyboard(service_key: str):
-    builder = InlineKeyboardBuilder()
-    for item_key, item_data in DATA[service_key]["items"].items():
-        builder.button(text=item_data["button"], callback_data=f"item:{service_key}:{item_key}")
-    builder.button(text="⬅️ Назад", callback_data="back_main")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def back_to_list_keyboard(service_key: str):
-    builder = InlineKeyboardBuilder()
-    builder.button(text="⬅️ К списку инструкций", callback_data=f"service:{service_key}")
-    builder.button(text="🏠 В главное меню", callback_data="back_main")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def acknowledge_keyboard(announcement_id: str):
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Ознакомлен", callback_data=f"ack:{announcement_id}")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def admin_main_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="👥 Пользователи", callback_data="admin_users")
-    builder.button(text="📊 Штрафы за неделю", callback_data="admin_weekly_fines")
-    builder.button(text="🗓 Кто на смене сейчас", callback_data="admin_who_should_work")
-    builder.button(text="📈 Прогноз загрузки", callback_data="admin_load_forecast")
-    builder.button(text="📨 Проверить диалоги", callback_data="admin_dialogs_check")
-    builder.button(text="📢 Рассылка", callback_data="admin_news_start")
-    builder.button(text="❌ Кто не ознакомился", callback_data="admin_not_read")
-    builder.button(text="👤 Мой профиль", callback_data="my_profile")
-    builder.adjust(2)
-    return builder.as_markup()
-
-
-def profile_keyboard(is_on_shift: bool):
-    builder = InlineKeyboardBuilder()
-    if not is_on_shift:
-        builder.button(text="🟢 Вышел на смену", callback_data="shift_on_btn")
-    else:
-        builder.button(text="🔴 Ушел со смены", callback_data="shift_off_btn")
-    builder.button(text="🚨 Нужен админ", callback_data="need_admin")
-    builder.button(text="🏠 В главное меню", callback_data="back_main")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def news_platform_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🤖 AI", callback_data="news_platform:ai")
-    builder.button(text="🎮 Steam", callback_data="news_platform:steam")
-    builder.button(text="🌍 Всем", callback_data="news_platform:all")
-    builder.button(text="❌ Отмена", callback_data="news_cancel")
-    builder.adjust(2)
-    return builder.as_markup()
-
-
-def news_deadline_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="⏱ 15 мин", callback_data="news_deadline:15")
-    builder.button(text="⏱ 30 мин", callback_data="news_deadline:30")
-    builder.button(text="⏱ 60 мин", callback_data="news_deadline:60")
-    builder.button(text="⏱ 120 мин", callback_data="news_deadline:120")
-    builder.button(text="❌ Отмена", callback_data="news_cancel")
-    builder.adjust(2)
-    return builder.as_markup()
-
-
-def need_admin_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="❗ Срочно", callback_data="req_admin:urgent")
-    builder.button(text="❓ Вопрос", callback_data="req_admin:question")
-    builder.button(text="⚙️ Проблема", callback_data="req_admin:problem")
-    builder.button(text="❌ Отмена", callback_data="req_admin_cancel")
-    builder.adjust(2)
-    return builder.as_markup()
-
-# =========================================================
-# ОБЩИЕ HELPERS
+# HELPERS
 # =========================================================
 def msk_now() -> datetime:
     return datetime.now(MSK_TZ)
@@ -693,7 +718,6 @@ def get_role_name(user_id: int) -> str:
 def current_shift_type(now: datetime | None = None) -> str | None:
     now = now or msk_now()
     now_t = now.time()
-
     if DAY_SHIFT_START <= now_t <= DAY_SHIFT_END:
         return "day"
     if EVENING_SHIFT_START <= now_t <= EVENING_SHIFT_END:
@@ -709,13 +733,6 @@ def current_shift_name(now: datetime | None = None) -> str:
         return "🌙 Вечерняя"
     return "⏸ Вне смены"
 
-
-def format_shift_window(shift_type: str) -> str:
-    if shift_type == "day":
-        return "11:00–17:30 МСК"
-    if shift_type == "evening":
-        return "17:30–00:00 МСК"
-    return "Нет"
 
 def is_late_for_shift(now: datetime, shift_type: str) -> bool:
     if shift_type == "day":
@@ -836,7 +853,7 @@ def get_profile_text(user_id: int) -> str:
     last_shift_on = state.get("last_shift_on") or "не было"
     last_shift_off = state.get("last_shift_off") or "не было"
     last_shift_type = state.get("last_shift_type") or "неизвестно"
-    streak = state.get("streak", 0)
+    streak = int(state.get("streak", 0))
 
     weekly_sum = get_user_weekly_fines_sum(user_id)
     total_sum = get_user_total_fines_sum(user_id)
@@ -880,43 +897,8 @@ def get_platform_users(platform: str) -> List[int]:
     return []
 
 
-def admin_commands_text() -> str:
-    return (
-        "👑 Админ-панель\n\n"
-        "Кнопки ниже делают основную работу.\n\n"
-        "Текстовые команды:\n"
-        "/admin — открыть админ-панель\n"
-        "/profile — мой профиль\n"
-        "/id — мой ID\n"
-        "/dialogs — активные диалоги Digiseller\n"
-        "/debug_dialogs — debug HTML диалогов\n"
-        "/watch_dialogs_on — включить авто-мониторинг диалогов\n"
-        "/watch_dialogs_off — выключить авто-мониторинг диалогов\n"
-        "/who_should_work — кто должен быть на смене сейчас\n"
-        "/load_forecast — прогноз загрузки\n"
-        "/weekly_fines — штрафы за 7 дней\n"
-        "/user <id> — быстрый просмотр сотрудника\n"
-        "/my_fines — мои штрафы\n"
-        "/my_week — мой отчёт за неделю\n"
-        "/today — график на сегодня\n"
-        "/tomorrow — график на завтра\n"
-        "/week — график на 7 дней\n"
-        "/set_schedule YYYY-MM-DD day 111,222\n"
-        "/set_schedule YYYY-MM-DD evening 333,444\n"
-        "/news_status — статус последних новостей\n"
-    )
-
-
 def get_schedule_for_day(day_str: str) -> dict:
     return SCHEDULE.get(day_str, {"day": [], "evening": []})
-
-
-def get_today_schedule() -> dict:
-    return get_schedule_for_day(today_msk_str())
-
-
-def get_tomorrow_schedule() -> dict:
-    return get_schedule_for_day(tomorrow_msk_str())
 
 
 def build_day_schedule_text(day_str: str) -> str:
@@ -955,7 +937,6 @@ def who_should_work_now() -> List[int]:
     shift_type = current_shift_type(now)
     if shift_type is None:
         return []
-
     sched = get_schedule_for_day(today_msk_str())
     return sched.get(shift_type, [])
 
@@ -978,7 +959,7 @@ def build_who_should_work_text() -> str:
 
 
 def build_load_forecast_text() -> str:
-    tomorrow = get_tomorrow_schedule()
+    tomorrow = get_schedule_for_day(tomorrow_msk_str())
     day_count = len(tomorrow.get("day", []))
     evening_count = len(tomorrow.get("evening", []))
 
@@ -1037,24 +1018,10 @@ def build_weekly_fines_report() -> str:
 
 def build_my_week_text(user_id: int) -> str:
     border = msk_now() - timedelta(days=7)
-
-    shift_count = 0
-    on_time_count = 0
-    late_count = 0
-
-    for uid_str, state in SHIFT_STATUS.items():
-        if int(uid_str) != int(user_id):
-            continue
-
-        # тут агрегируем по текущему сохранённому состоянию + журналу штрафов/очков
-        # для простоты считаем по score/fine событиям за неделю
-        pass
-
     weekly_fines = get_user_weekly_fines_sum(user_id)
     weekly_score = get_user_weekly_score(user_id)
-    streak = SHIFT_STATUS.get(str(user_id), {}).get("streak", 0)
+    streak = int(SHIFT_STATUS.get(str(user_id), {}).get("streak", 0))
 
-    # считаем опоздания за неделю
     late_events = 0
     for fine in get_user_fines(user_id):
         try:
@@ -1064,7 +1031,6 @@ def build_my_week_text(user_id: int) -> str:
         except Exception:
             continue
 
-    # считаем бонусы за идеальный старт за неделю
     perfect_starts = 0
     for score in get_user_scores(user_id):
         try:
@@ -1074,14 +1040,180 @@ def build_my_week_text(user_id: int) -> str:
         except Exception:
             continue
 
+    first_on_shift = 0
+    for score in get_user_scores(user_id):
+        try:
+            dt = datetime.strptime(score["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK_TZ)
+            if dt >= border and score["reason"] == "Первый на смене":
+                first_on_shift += 1
+        except Exception:
+            continue
+
     return (
         "📊 Ваш отчёт за 7 дней\n\n"
         f"⭐ Рейтинг за неделю: {weekly_score}\n"
         f"🔥 Текущий streak: {streak}\n"
         f"⏰ Опозданий за неделю: {late_events}\n"
         f"🎯 Точных выходов в стартовую минуту: {perfect_starts}\n"
+        f"🏁 Первых выходов на смене: {first_on_shift}\n"
         f"💸 Штрафов за неделю: {weekly_fines} руб"
     )
+
+
+def build_news_status_text() -> str:
+    if not ANNOUNCEMENTS:
+        return "📢 Новостей пока нет."
+
+    lines = ["📢 Статус новостей:\n"]
+    sorted_items = sorted(
+        ANNOUNCEMENTS.items(),
+        key=lambda x: x[1].get("created_at", ""),
+        reverse=True
+    )[:10]
+
+    for ann_id, ann in sorted_items:
+        platform = ann.get("platform", "all")
+        acked = len(ann.get("acked_by", []))
+        target = len(get_platform_users(platform))
+        lines.append(
+            f"• ID {ann_id}\n"
+            f"  🌍 Платформа: {platform.upper()}\n"
+            f"  ⏱ Дедлайн: {ann.get('deadline_minutes', 0)} мин\n"
+            f"  ✅ Ознакомились: {acked}/{target}\n"
+            f"  📝 {ann.get('text', '')[:80]}"
+        )
+    return "\n\n".join(lines)
+
+
+def build_not_read_text() -> str:
+    if not ANNOUNCEMENTS:
+        return "📭 Нет активных новостей."
+
+    ann_id, ann = sorted(
+        ANNOUNCEMENTS.items(),
+        key=lambda x: x[1].get("created_at", ""),
+        reverse=True
+    )[0]
+
+    platform = ann.get("platform", "all")
+    target_users = get_platform_users(platform)
+    acked = set(int(x) for x in ann.get("acked_by", []))
+    not_read = [uid for uid in target_users if uid not in acked]
+
+    if not not_read:
+        return "✅ Все сотрудники ознакомились."
+
+    lines = ["❌ Не ознакомились:\n"]
+    for uid in not_read:
+        lines.append(f"• {get_short_user_label(uid)} | {get_platform_name(uid)}")
+
+    return "\n".join(lines)
+
+# =========================================================
+# КЛАВИАТУРЫ
+# =========================================================
+def services_keyboard():
+    builder = InlineKeyboardBuilder()
+    for service_key, service_data in DATA.items():
+        builder.button(text=service_data["title"], callback_data=f"service:{service_key}")
+    builder.button(text="🏠 Главное меню", callback_data="open_menu")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def instructions_keyboard(service_key: str):
+    builder = InlineKeyboardBuilder()
+    for item_key, item_data in DATA[service_key]["items"].items():
+        builder.button(text=item_data["button"], callback_data=f"item:{service_key}:{item_key}")
+    builder.button(text="⬅️ Назад", callback_data="open_instructions")
+    builder.button(text="🏠 Главное меню", callback_data="open_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def back_to_list_keyboard(service_key: str):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ К списку инструкций", callback_data=f"service:{service_key}")
+    builder.button(text="🏠 Главное меню", callback_data="open_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def acknowledge_keyboard(announcement_id: str):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Ознакомлен", callback_data=f"ack:{announcement_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def admin_main_inline_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👥 Пользователи", callback_data="admin_users")
+    builder.button(text="📊 Штрафы за неделю", callback_data="admin_weekly_fines")
+    builder.button(text="🗓 Кто на смене сейчас", callback_data="admin_who_should_work")
+    builder.button(text="📈 Прогноз загрузки", callback_data="admin_load_forecast")
+    builder.button(text="📨 Проверить диалоги", callback_data="admin_dialogs_check")
+    builder.button(text="📢 Рассылка", callback_data="admin_news_start")
+    builder.button(text="❌ Кто не ознакомился", callback_data="admin_not_read")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def profile_inline_keyboard(is_on_shift: bool):
+    builder = InlineKeyboardBuilder()
+    if not is_on_shift:
+        builder.button(text="🟢 Вышел на смену", callback_data="shift_on_btn")
+    else:
+        builder.button(text="🔴 Ушёл со смены", callback_data="shift_off_btn")
+    builder.button(text="📊 Мой отчёт", callback_data="my_week_btn")
+    builder.button(text="💸 Мои штрафы", callback_data="my_fines_btn")
+    builder.button(text="🏠 Главное меню", callback_data="open_menu")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def news_platform_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🤖 AI", callback_data="news_platform:ai")
+    builder.button(text="🎮 Steam", callback_data="news_platform:steam")
+    builder.button(text="🌍 Всем", callback_data="news_platform:all")
+    builder.button(text="❌ Отмена", callback_data="news_cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def news_deadline_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⏱ 15 мин", callback_data="news_deadline:15")
+    builder.button(text="⏱ 30 мин", callback_data="news_deadline:30")
+    builder.button(text="⏱ 60 мин", callback_data="news_deadline:60")
+    builder.button(text="⏱ 120 мин", callback_data="news_deadline:120")
+    builder.button(text="❌ Отмена", callback_data="news_cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def need_admin_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❗ Срочно", callback_data="req_admin:urgent")
+    builder.button(text="❓ Вопрос", callback_data="req_admin:question")
+    builder.button(text="⚙️ Проблема", callback_data="req_admin:problem")
+    builder.button(text="❌ Отмена", callback_data="req_admin_cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def main_menu_keyboard(is_admin_user: bool = False):
+    rows = [
+        [KeyboardButton(text="📚 Инструкции"), KeyboardButton(text="👤 Профиль")],
+        [KeyboardButton(text="📊 Моя неделя"), KeyboardButton(text="💸 Мои штрафы")],
+        [KeyboardButton(text="🟢 Вышел на смену"), KeyboardButton(text="🔴 Ушёл со смены")],
+        [KeyboardButton(text="🗓 Сегодня"), KeyboardButton(text="📅 Завтра")],
+        [KeyboardButton(text="🚨 Нужен админ")],
+    ]
+    if is_admin_user:
+        rows.append([KeyboardButton(text="👑 Админ панель")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 # =========================================================
 # DIGISELLER
@@ -1480,7 +1612,19 @@ async def auto_check_absent_workers(bot: Bot):
         await asyncio.sleep(ABSENT_CHECK_INTERVAL_SECONDS)
 
 # =========================================================
-# НОВОСТИ
+# REQUESTS
+# =========================================================
+def add_request(user_id: int, req_type: str):
+    REQUESTS.append({
+        "user_id": int(user_id),
+        "type": req_type,
+        "status": "open",
+        "created_at": msk_now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+    save_requests(REQUESTS)
+
+# =========================================================
+# РАССЫЛКИ
 # =========================================================
 def create_announcement(platform: str, deadline_minutes: int, text: str) -> str:
     announcement_id = str(int(asyncio.get_event_loop().time() * 1000))
@@ -1494,70 +1638,8 @@ def create_announcement(platform: str, deadline_minutes: int, text: str) -> str:
     save_announcements(ANNOUNCEMENTS)
     return announcement_id
 
-
-def build_news_status_text() -> str:
-    if not ANNOUNCEMENTS:
-        return "📢 Новостей пока нет."
-
-    lines = ["📢 Статус новостей:\n"]
-    sorted_items = sorted(
-        ANNOUNCEMENTS.items(),
-        key=lambda x: x[1].get("created_at", ""),
-        reverse=True
-    )[:10]
-
-    for ann_id, ann in sorted_items:
-        platform = ann.get("platform", "all")
-        acked = len(ann.get("acked_by", []))
-        target = len(get_platform_users(platform))
-        lines.append(
-            f"• ID {ann_id}\n"
-            f"  🌍 Платформа: {platform.upper()}\n"
-            f"  ⏱ Дедлайн: {ann.get('deadline_minutes', 0)} мин\n"
-            f"  ✅ Ознакомились: {acked}/{target}\n"
-            f"  📝 {ann.get('text', '')[:80]}"
-        )
-    return "\n\n".join(lines)
-
-
-def build_not_read_text() -> str:
-    if not ANNOUNCEMENTS:
-        return "📭 Нет активных новостей."
-
-    ann_id, ann = sorted(
-        ANNOUNCEMENTS.items(),
-        key=lambda x: x[1].get("created_at", ""),
-        reverse=True
-    )[0]
-
-    platform = ann.get("platform", "all")
-    target_users = get_platform_users(platform)
-    acked = set(int(x) for x in ann.get("acked_by", []))
-    not_read = [uid for uid in target_users if uid not in acked]
-
-    if not not_read:
-        return "✅ Все сотрудники ознакомились."
-
-    lines = ["❌ Не ознакомились:\n"]
-    for uid in not_read:
-        lines.append(f"• {get_short_user_label(uid)} | {get_platform_name(uid)}")
-
-    return "\n".join(lines)
-
 # =========================================================
-# REQUESTS TO ADMIN
-# =========================================================
-def add_request(user_id: int, req_type: str):
-    REQUESTS.append({
-        "user_id": int(user_id),
-        "type": req_type,
-        "status": "open",
-        "created_at": msk_now().strftime("%Y-%m-%d %H:%M:%S")
-    })
-    save_requests(REQUESTS)
-
-# =========================================================
-# DIGISELLER MONITOR
+# MONITORS
 # =========================================================
 async def broadcast_to_all_users(bot: Bot, text: str) -> None:
     for user_id in USERS:
@@ -1645,8 +1727,57 @@ async def monitor_dialogs(bot: Bot):
 
         await asyncio.sleep(DIALOGS_CHECK_INTERVAL_SECONDS)
 
+
+async def monitor_announcements(bot: Bot):
+    await asyncio.sleep(15)
+
+    while True:
+        try:
+            now = msk_now()
+
+            for ann_id, ann in list(ANNOUNCEMENTS.items()):
+                created_str = ann.get("created_at")
+                deadline_minutes = int(ann.get("deadline_minutes", 0))
+                if not created_str or deadline_minutes <= 0:
+                    continue
+
+                try:
+                    created_dt = datetime.strptime(created_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK_TZ)
+                except Exception:
+                    continue
+
+                deadline_dt = created_dt + timedelta(minutes=deadline_minutes)
+                if now < deadline_dt:
+                    continue
+
+                if ann.get("expired_notified"):
+                    continue
+
+                platform = ann.get("platform", "all")
+                target_users = get_platform_users(platform)
+                acked = set(int(x) for x in ann.get("acked_by", []))
+                not_read = [uid for uid in target_users if uid not in acked]
+
+                if not_read:
+                    for admin_id in ADMIN_IDS:
+                        try:
+                            lines = [f"❌ Не ознакомились вовремя | {platform.upper()}"]
+                            lines.extend([f"• {get_short_user_label(uid)}" for uid in not_read])
+                            await bot.send_message(admin_id, "\n".join(lines))
+                        except Exception:
+                            pass
+
+                ann["expired_notified"] = True
+                ANNOUNCEMENTS[ann_id] = ann
+                save_announcements(ANNOUNCEMENTS)
+
+        except Exception as e:
+            logging.exception(f"Ошибка мониторинга новостей: {e}")
+
+        await asyncio.sleep(60)
+
 # =========================================================
-# ХЕНДЛЕРЫ СООБЩЕНИЙ
+# COMMAND HANDLERS
 # =========================================================
 async def start_handler(message: Message):
     user_id = message.chat.id
@@ -1668,7 +1799,7 @@ async def start_handler(message: Message):
         f"🆔 Ваш user ID: {user_id}\n\n"
         f"Теперь вам будут приходить отзывы, новости и служебные уведомления.\n"
         f"Ниже доступно главное меню 👇",
-        reply_markup=services_keyboard()
+        reply_markup=main_menu_keyboard(is_admin(user_id))
     )
 
     admin_text = (
@@ -1687,6 +1818,15 @@ async def start_handler(message: Message):
             logging.warning(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
 
+async def menu_handler(message: Message):
+    ensure_shift_user(message.chat.id)
+    await message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin(message.chat.id)))
+
+
+async def instructions_handler(message: Message):
+    await message.answer("📚 Выберите раздел инструкций:", reply_markup=services_keyboard())
+
+
 async def id_handler(message: Message):
     await message.answer(f"🆔 Ваш user ID: {message.chat.id}")
 
@@ -1695,7 +1835,7 @@ async def profile_handler(message: Message):
     ensure_shift_user(message.chat.id)
     update_profile_from_user(message.from_user)
     is_on = SHIFT_STATUS[str(message.chat.id)]["is_on_shift"]
-    await message.answer(get_profile_text(message.chat.id), reply_markup=profile_keyboard(is_on))
+    await message.answer(get_profile_text(message.chat.id), reply_markup=profile_inline_keyboard(is_on))
 
 
 async def my_fines_handler(message: Message):
@@ -1721,7 +1861,7 @@ async def admin_handler(message: Message):
     if not is_admin(message.chat.id):
         await message.answer("⛔ У вас нет доступа к админ-панели.")
         return
-    await message.answer(admin_commands_text(), reply_markup=admin_main_keyboard())
+    await message.answer("👑 Админ-панель", reply_markup=admin_main_inline_keyboard())
 
 
 async def users_count_handler(message: Message):
@@ -1772,14 +1912,14 @@ async def shift_on_handler(message: Message):
     update_profile_from_user(message.from_user)
     ensure_shift_user(message.chat.id)
     text = await process_shift_on(message.chat.id, message.bot)
-    await message.answer(text, reply_markup=profile_keyboard(True))
+    await message.answer(text)
 
 
 async def shift_off_handler(message: Message):
     update_profile_from_user(message.from_user)
     ensure_shift_user(message.chat.id)
     text = await process_shift_off(message.chat.id)
-    await message.answer(text, reply_markup=profile_keyboard(False))
+    await message.answer(text)
 
 
 async def fine_handler(message: Message):
@@ -1952,17 +2092,105 @@ async def news_status_handler(message: Message):
     await message.answer(build_news_status_text())
 
 
+async def admin_news_text_catcher(message: Message):
+    if not is_admin(message.chat.id):
+        return
+
+    draft = PENDING_NEWS.get(str(message.chat.id))
+    if not draft:
+        return
+
+    text = (message.text or "").strip()
+    if not text:
+        return
+
+    platform = draft.get("platform")
+    deadline_minutes = draft.get("deadline_minutes")
+
+    if not platform or not deadline_minutes:
+        await message.answer("❌ Недостаточно данных для рассылки.")
+        return
+
+    announcement_id = create_announcement(platform, deadline_minutes, text)
+    target_users = get_platform_users(platform)
+
+    sent_count = 0
+    for user_id in target_users:
+        try:
+            await message.bot.send_message(
+                user_id,
+                f"📢 Новая информация от администратора\n"
+                f"🌍 Платформа: {platform.upper()}\n\n"
+                f"{text}\n\n"
+                f"⏱ Время на ознакомление: {deadline_minutes} мин",
+                reply_markup=acknowledge_keyboard(announcement_id)
+            )
+            sent_count += 1
+        except Exception:
+            continue
+
+    PENDING_NEWS.pop(str(message.chat.id), None)
+    save_pending_news(PENDING_NEWS)
+
+    await message.answer(
+        f"✅ Рассылка отправлена.\n"
+        f"🌍 Платформа: {platform.upper()}\n"
+        f"👥 Получателей: {sent_count}\n"
+        f"⏱ Время: {deadline_minutes} мин"
+    )
+
+# =========================================================
+# TEXT BUTTONS
+# =========================================================
+async def btn_instructions(message: Message):
+    await instructions_handler(message)
+
+
+async def btn_profile(message: Message):
+    await profile_handler(message)
+
+
+async def btn_my_week(message: Message):
+    await my_week_handler(message)
+
+
+async def btn_my_fines(message: Message):
+    await my_fines_handler(message)
+
+
+async def btn_shift_on(message: Message):
+    await shift_on_handler(message)
+
+
+async def btn_shift_off(message: Message):
+    await shift_off_handler(message)
+
+
+async def btn_today(message: Message):
+    await today_handler(message)
+
+
+async def btn_tomorrow(message: Message):
+    await tomorrow_handler(message)
+
+
+async def btn_need_admin(message: Message):
+    await message.answer("🚨 Выберите тип обращения к админу:", reply_markup=need_admin_keyboard())
+
+
+async def btn_admin_panel(message: Message):
+    await admin_handler(message)
+
 # =========================================================
 # CALLBACKS
 # =========================================================
 async def service_handler(callback: CallbackQuery):
     service_key = callback.data.split(":")[1]
-
     if service_key not in DATA:
         await callback.answer("Раздел не найден", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         f"📚 Вы выбрали: {DATA[service_key]['title']}\n\nВыберите инструкцию:",
         reply_markup=instructions_keyboard(service_key)
     )
@@ -1976,7 +2204,7 @@ async def item_handler(callback: CallbackQuery):
         return
 
     text = DATA[service_key]["items"][item_key]["text"]
-    await callback.message.edit_text(
+    await callback.message.answer(
         text,
         reply_markup=back_to_list_keyboard(service_key),
         disable_web_page_preview=True
@@ -1984,16 +2212,42 @@ async def item_handler(callback: CallbackQuery):
     await callback.answer()
 
 
-async def back_main_handler(callback: CallbackQuery):
-    await callback.message.edit_text("🏠 Главное меню", reply_markup=services_keyboard())
-    await callback.answer()
-
-
 async def my_profile_handler(callback: CallbackQuery):
     ensure_shift_user(callback.from_user.id)
     update_profile_from_user(callback.from_user)
     is_on = SHIFT_STATUS[str(callback.from_user.id)]["is_on_shift"]
-    await callback.message.answer(get_profile_text(callback.from_user.id), reply_markup=profile_keyboard(is_on))
+    await callback.message.answer(get_profile_text(callback.from_user.id), reply_markup=profile_inline_keyboard(is_on))
+    await callback.answer()
+
+
+async def my_fines_button_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user_fines = get_user_fines(user_id)
+    if not user_fines:
+        await callback.message.answer("💸 У вас пока нет штрафов.")
+        await callback.answer()
+        return
+
+    lines = ["💸 Ваши штрафы:\n"]
+    for fine in user_fines[-15:]:
+        lines.append(f"• {fine['created_at']} | {fine['amount']} руб | {fine['reason']}")
+
+    await callback.message.answer("\n".join(lines))
+    await callback.answer()
+
+
+async def my_week_button_handler(callback: CallbackQuery):
+    await callback.message.answer(build_my_week_text(callback.from_user.id))
+    await callback.answer()
+
+
+async def open_instructions_handler(callback: CallbackQuery):
+    await callback.message.answer("📚 Выберите раздел инструкций:", reply_markup=services_keyboard())
+    await callback.answer()
+
+
+async def open_menu_handler(callback: CallbackQuery):
+    await callback.message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin(callback.from_user.id)))
     await callback.answer()
 
 
@@ -2001,7 +2255,7 @@ async def shift_on_btn_handler(callback: CallbackQuery):
     update_profile_from_user(callback.from_user)
     ensure_shift_user(callback.from_user.id)
     text = await process_shift_on(callback.from_user.id, callback.bot)
-    await callback.message.answer(text, reply_markup=profile_keyboard(True))
+    await callback.message.answer(text)
     await callback.answer()
 
 
@@ -2009,7 +2263,7 @@ async def shift_off_btn_handler(callback: CallbackQuery):
     update_profile_from_user(callback.from_user)
     ensure_shift_user(callback.from_user.id)
     text = await process_shift_off(callback.from_user.id)
-    await callback.message.answer(text, reply_markup=profile_keyboard(False))
+    await callback.message.answer(text)
     await callback.answer()
 
 
@@ -2049,7 +2303,6 @@ async def admin_dialogs_check_handler(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("Нет доступа", show_alert=True)
         return
-
     try:
         active_count, new_count_sum, rows = await asyncio.to_thread(parse_dialogs_page)
         await callback.message.answer(build_dialogs_message(active_count, new_count_sum, rows))
@@ -2057,51 +2310,6 @@ async def admin_dialogs_check_handler(callback: CallbackQuery):
     except Exception as e:
         await callback.answer("Ошибка", show_alert=True)
         await callback.message.answer(f"❌ Не удалось получить диалоги: {e}")
-
-
-async def need_admin_handler(callback: CallbackQuery):
-    await callback.message.answer(
-        "🚨 Выберите тип обращения к админу:",
-        reply_markup=need_admin_keyboard()
-    )
-    await callback.answer()
-
-
-async def req_admin_type_handler(callback: CallbackQuery):
-    req_type = callback.data.split(":")[1]
-    user_id = callback.from_user.id
-    update_profile_from_user(callback.from_user)
-    ensure_shift_user(user_id)
-
-    add_request(user_id, req_type)
-
-    req_name = {
-        "urgent": "❗ Срочно",
-        "question": "❓ Вопрос",
-        "problem": "⚙️ Проблема"
-    }.get(req_type, req_type)
-
-    for admin_id in ADMIN_IDS:
-        try:
-            await callback.bot.send_message(
-                admin_id,
-                f"🚨 Запрос сотрудника\n"
-                f"👤 {get_short_user_label(user_id)}\n"
-                f"🧩 Платформа: {get_platform_name(user_id)}\n"
-                f"🕒 Смена: {current_shift_name()}\n"
-                f"📌 Тип: {req_name}\n"
-                f"🆔 ID: {user_id}"
-            )
-        except Exception:
-            pass
-
-    await callback.message.answer("✅ Запрос админу отправлен.")
-    await callback.answer()
-
-
-async def req_admin_cancel_handler(callback: CallbackQuery):
-    await callback.message.answer("❌ Запрос админу отменён.")
-    await callback.answer()
 
 
 async def admin_news_start_handler(callback: CallbackQuery):
@@ -2112,10 +2320,7 @@ async def admin_news_start_handler(callback: CallbackQuery):
     PENDING_NEWS[str(callback.from_user.id)] = {}
     save_pending_news(PENDING_NEWS)
 
-    await callback.message.answer(
-        "📢 Выберите платформу для рассылки:",
-        reply_markup=news_platform_keyboard()
-    )
+    await callback.message.answer("📢 Выберите платформу для рассылки:", reply_markup=news_platform_keyboard())
     await callback.answer()
 
 
@@ -2131,8 +2336,7 @@ async def news_platform_handler(callback: CallbackQuery):
     save_pending_news(PENDING_NEWS)
 
     await callback.message.answer(
-        f"✅ Платформа выбрана: {platform.upper()}\n\n"
-        "⏱ Теперь выберите время на ознакомление:",
+        f"✅ Платформа выбрана: {platform.upper()}\n\n⏱ Теперь выберите время на ознакомление:",
         reply_markup=news_deadline_keyboard()
     )
     await callback.answer()
@@ -2150,8 +2354,7 @@ async def news_deadline_handler(callback: CallbackQuery):
     save_pending_news(PENDING_NEWS)
 
     await callback.message.answer(
-        f"✅ Время на ознакомление: {minutes} мин.\n\n"
-        "📝 Теперь отправьте одним сообщением текст рассылки."
+        f"✅ Время на ознакомление: {minutes} мин.\n\n📝 Теперь отправьте одним сообщением текст рассылки."
     )
     await callback.answer()
 
@@ -2206,106 +2409,50 @@ async def admin_not_read_cb(callback: CallbackQuery):
     await callback.message.answer(build_not_read_text())
     await callback.answer()
 
-# =========================================================
-# РАССЫЛКА ПОСЛЕ ВВОДА ТЕКСТА
-# =========================================================
-async def admin_news_text_catcher(message: Message):
-    if not is_admin(message.chat.id):
-        return
 
-    draft = PENDING_NEWS.get(str(message.chat.id))
-    if not draft:
-        return
+async def need_admin_handler(callback: CallbackQuery):
+    await callback.message.answer("🚨 Выберите тип обращения к админу:", reply_markup=need_admin_keyboard())
+    await callback.answer()
 
-    platform = draft.get("platform")
-    deadline_minutes = draft.get("deadline_minutes")
-    text = message.text.strip()
 
-    if not platform or not deadline_minutes or not text:
-        await message.answer("❌ Недостаточно данных для рассылки.")
-        return
+async def req_admin_type_handler(callback: CallbackQuery):
+    req_type = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+    update_profile_from_user(callback.from_user)
+    ensure_shift_user(user_id)
 
-    announcement_id = create_announcement(platform, deadline_minutes, text)
-    target_users = get_platform_users(platform)
+    add_request(user_id, req_type)
 
-    sent_count = 0
-    for user_id in target_users:
+    req_name = {
+        "urgent": "❗ Срочно",
+        "question": "❓ Вопрос",
+        "problem": "⚙️ Проблема"
+    }.get(req_type, req_type)
+
+    for admin_id in ADMIN_IDS:
         try:
-            await message.bot.send_message(
-                user_id,
-                f"📢 Новая информация от администратора\n"
-                f"🌍 Платформа: {platform.upper()}\n\n"
-                f"{text}\n\n"
-                f"⏱ Время на ознакомление: {deadline_minutes} мин",
-                reply_markup=acknowledge_keyboard(announcement_id)
+            await callback.bot.send_message(
+                admin_id,
+                f"🚨 Запрос сотрудника\n"
+                f"👤 {get_short_user_label(user_id)}\n"
+                f"🧩 Платформа: {get_platform_name(user_id)}\n"
+                f"🕒 Смена: {current_shift_name()}\n"
+                f"📌 Тип: {req_name}\n"
+                f"🆔 ID: {user_id}"
             )
-            sent_count += 1
         except Exception:
-            continue
+            pass
 
-    PENDING_NEWS.pop(str(message.chat.id), None)
-    save_pending_news(PENDING_NEWS)
+    await callback.message.answer("✅ Запрос админу отправлен.")
+    await callback.answer()
 
-    await message.answer(
-        f"✅ Рассылка отправлена.\n"
-        f"🌍 Платформа: {platform.upper()}\n"
-        f"👥 Получателей: {sent_count}\n"
-        f"⏱ Время: {deadline_minutes} мин"
-    )
+
+async def req_admin_cancel_handler(callback: CallbackQuery):
+    await callback.message.answer("❌ Запрос админу отменён.")
+    await callback.answer()
 
 # =========================================================
-# МОНИТОРИНГ НЕОЗНАКОМЛЕНИЯ
-# =========================================================
-async def monitor_announcements(bot: Bot):
-    await asyncio.sleep(15)
-
-    while True:
-        try:
-            now = msk_now()
-
-            for ann_id, ann in list(ANNOUNCEMENTS.items()):
-                created_str = ann.get("created_at")
-                deadline_minutes = int(ann.get("deadline_minutes", 0))
-                if not created_str or deadline_minutes <= 0:
-                    continue
-
-                try:
-                    created_dt = datetime.strptime(created_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK_TZ)
-                except Exception:
-                    continue
-
-                deadline_dt = created_dt + timedelta(minutes=deadline_minutes)
-                if now < deadline_dt:
-                    continue
-
-                if ann.get("expired_notified"):
-                    continue
-
-                platform = ann.get("platform", "all")
-                target_users = get_platform_users(platform)
-                acked = set(int(x) for x in ann.get("acked_by", []))
-                not_read = [uid for uid in target_users if uid not in acked]
-
-                if not_read:
-                    for admin_id in ADMIN_IDS:
-                        try:
-                            lines = [f"❌ Не ознакомились вовремя | {platform.upper()}"]
-                            lines.extend([f"• {get_short_user_label(uid)}" for uid in not_read])
-                            await bot.send_message(admin_id, "\n".join(lines))
-                        except Exception:
-                            pass
-
-                ann["expired_notified"] = True
-                ANNOUNCEMENTS[ann_id] = ann
-                save_announcements(ANNOUNCEMENTS)
-
-        except Exception as e:
-            logging.exception(f"Ошибка мониторинга новостей: {e}")
-
-        await asyncio.sleep(60)
-
-# =========================================================
-# ЗАПУСК
+# MAIN
 # =========================================================
 async def main():
     if not TOKEN:
@@ -2316,10 +2463,12 @@ async def main():
     bot = Bot(token=TOKEN)
     dp = Dispatcher()
 
-    # messages
+    # commands
     dp.message.register(start_handler, CommandStart())
-    dp.message.register(id_handler, Command("id"))
+    dp.message.register(menu_handler, Command("menu"))
+    dp.message.register(instructions_handler, Command("instructions"))
     dp.message.register(profile_handler, Command("profile"))
+    dp.message.register(id_handler, Command("id"))
     dp.message.register(my_fines_handler, Command("my_fines"))
     dp.message.register(my_week_handler, Command("my_week"))
     dp.message.register(admin_handler, Command("admin"))
@@ -2344,14 +2493,29 @@ async def main():
     dp.message.register(watch_dialogs_off_handler, Command("watch_dialogs_off"))
     dp.message.register(news_status_handler, Command("news_status"))
 
-    # fallback for admin news text
+    # text buttons
+    dp.message.register(btn_instructions, F.text == "📚 Инструкции")
+    dp.message.register(btn_profile, F.text == "👤 Профиль")
+    dp.message.register(btn_my_week, F.text == "📊 Моя неделя")
+    dp.message.register(btn_my_fines, F.text == "💸 Мои штрафы")
+    dp.message.register(btn_shift_on, F.text == "🟢 Вышел на смену")
+    dp.message.register(btn_shift_off, F.text == "🔴 Ушёл со смены")
+    dp.message.register(btn_today, F.text == "🗓 Сегодня")
+    dp.message.register(btn_tomorrow, F.text == "📅 Завтра")
+    dp.message.register(btn_need_admin, F.text == "🚨 Нужен админ")
+    dp.message.register(btn_admin_panel, F.text == "👑 Админ панель")
+
+    # admin news text fallback
     dp.message.register(admin_news_text_catcher, F.text)
 
     # callbacks
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
     dp.callback_query.register(item_handler, F.data.startswith("item:"))
-    dp.callback_query.register(back_main_handler, F.data == "back_main")
     dp.callback_query.register(my_profile_handler, F.data == "my_profile")
+    dp.callback_query.register(my_fines_button_handler, F.data == "my_fines_btn")
+    dp.callback_query.register(my_week_button_handler, F.data == "my_week_btn")
+    dp.callback_query.register(open_instructions_handler, F.data == "open_instructions")
+    dp.callback_query.register(open_menu_handler, F.data == "open_menu")
     dp.callback_query.register(shift_on_btn_handler, F.data == "shift_on_btn")
     dp.callback_query.register(shift_off_btn_handler, F.data == "shift_off_btn")
     dp.callback_query.register(acknowledge_handler, F.data.startswith("ack:"))
