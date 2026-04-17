@@ -4,8 +4,9 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, time
 from typing import Dict, List, Set, Tuple
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -33,6 +34,18 @@ ANNOUNCEMENTS_FILE = "announcements.json"
 SHIFT_STATUS_FILE = "shift_status.json"
 PROFILES_FILE = "profiles.json"
 DIALOGS_STATE_FILE = "dialogs_state.json"
+FINES_FILE = "fines.json"
+
+MSK_TZ = ZoneInfo("Europe/Moscow")
+LATE_FINE_AMOUNT = 500
+
+DAY_SHIFT_START = time(11, 0)
+DAY_SHIFT_LATE_AFTER = time(11, 15)
+DAY_SHIFT_END = time(17, 30)
+
+EVENING_SHIFT_START = time(17, 30)
+EVENING_SHIFT_LATE_AFTER = time(17, 45)
+EVENING_SHIFT_END = time(23, 59, 59)
 
 # =========================================================
 # АДМИНЫ
@@ -42,8 +55,8 @@ ADMIN_IDS = [781922474, 135479524, 5384930958]
 # =========================================================
 # РАБОТНИКИ ПО ПЛАТФОРМАМ
 # =========================================================
-AI_WORKERS = [8225013907, 8177004956, 781922474, 5384930958, 1920853728, 844359525, 1294614140, 135479524]
-STEAM_WORKERS = [7135999120, 742038308, 5384930958, 135479524]
+AI_WORKERS = [8225013907, 8177004956, 781922474, 5384930958, 1920853728, 844359525, 1294614140, 135479524, 1323864732]
+STEAM_WORKERS = 7135999120, 742038308, 5384930958, 135479524, 1312771702, 5493517866]
 
 # =========================================================
 # ИНСТРУКЦИИ
@@ -110,7 +123,6 @@ DATA = {
             }
         }
     },
-
     "claude": {
         "title": "Claude",
         "items": {
@@ -202,7 +214,6 @@ DATA = {
             }
         }
     },
-
     "grok": {
         "title": "Grok",
         "items": {
@@ -223,7 +234,6 @@ DATA = {
             }
         }
     },
-
     "spotify": {
         "title": "Spotify",
         "items": {
@@ -350,7 +360,6 @@ DATA = {
             }
         }
     },
-
     "kling": {
         "title": "Kling",
         "items": {
@@ -372,7 +381,6 @@ DATA = {
             }
         }
     },
-
     "midjourney": {
         "title": "Midjourney",
         "items": {
@@ -451,11 +459,11 @@ def save_announcements(data: Dict[str, dict]) -> None:
     save_json_file(ANNOUNCEMENTS_FILE, data)
 
 
-def load_shift_status() -> Dict[str, bool]:
+def load_shift_status() -> Dict[str, dict]:
     return load_json_file(SHIFT_STATUS_FILE, {})
 
 
-def save_shift_status(data: Dict[str, bool]) -> None:
+def save_shift_status(data: Dict[str, dict]) -> None:
     save_json_file(SHIFT_STATUS_FILE, data)
 
 
@@ -483,20 +491,30 @@ def save_dialogs_state(data: Dict[str, dict]) -> None:
     save_json_file(DIALOGS_STATE_FILE, data)
 
 
+def load_fines() -> List[dict]:
+    return load_json_file(FINES_FILE, [])
+
+
+def save_fines(data: List[dict]) -> None:
+    save_json_file(FINES_FILE, data)
+
+
 USERS: Set[int] = load_users()
 SENT_REVIEWS: Set[str] = load_sent_reviews()
 ANNOUNCEMENTS: Dict[str, dict] = load_announcements()
-SHIFT_STATUS: Dict[str, bool] = load_shift_status()
+SHIFT_STATUS: Dict[str, dict] = load_shift_status()
 USER_PROFILES: Dict[str, dict] = load_profiles()
 DIALOGS_STATE: Dict[str, dict] = load_dialogs_state()
+FINES: List[dict] = load_fines()
 
 # =========================================================
-# КЛАВИАТУРЫ
+# КНОПКИ
 # =========================================================
 def services_keyboard():
     builder = InlineKeyboardBuilder()
     for service_key, service_data in DATA.items():
         builder.button(text=service_data["title"], callback_data=f"service:{service_key}")
+    builder.button(text="👤 Мой профиль", callback_data="my_profile")
     builder.adjust(2)
     return builder.as_markup()
 
@@ -528,11 +546,23 @@ def acknowledge_keyboard(announcement_id: str):
 def admin_dialogs_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="📨 Проверить диалоги", callback_data="admin_dialogs_check")
+    builder.button(text="👤 Мой профиль", callback_data="my_profile")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def profile_keyboard(is_on_shift: bool):
+    builder = InlineKeyboardBuilder()
+    if not is_on_shift:
+        builder.button(text="🟢 Вышел на смену", callback_data="shift_on_btn")
+    else:
+        builder.button(text="🔴 Ушел со смены", callback_data="shift_off_btn")
+    builder.button(text="🏠 В главное меню", callback_data="back_main")
     builder.adjust(1)
     return builder.as_markup()
 
 # =========================================================
-# HELPER
+# HELPERS
 # =========================================================
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
@@ -544,19 +574,148 @@ def update_profile_from_user(user) -> None:
         "username": user.username or "",
         "first_name": user.first_name or "",
         "last_name": user.last_name or "",
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "updated_at": datetime.now(MSK_TZ).strftime("%Y-%m-%d %H:%M:%S")
     }
     save_profiles(USER_PROFILES)
 
 
+def get_platform_name(user_id: int) -> str:
+    if user_id in AI_WORKERS:
+        return "AI"
+    if user_id in STEAM_WORKERS:
+        return "Steam"
+    return "не назначена"
+
+
+def get_role_name(user_id: int) -> str:
+    return "админ" if is_admin(user_id) else "сотрудник"
+
+
+def msk_now() -> datetime:
+    return datetime.now(MSK_TZ)
+
+
+def current_shift_type(now: datetime | None = None) -> str | None:
+    now = now or msk_now()
+    now_t = now.time()
+
+    if DAY_SHIFT_START <= now_t < DAY_SHIFT_END:
+        return "day"
+    if EVENING_SHIFT_START <= now_t <= EVENING_SHIFT_END:
+        return "evening"
+    return None
+
+
+def current_shift_name(now: datetime | None = None) -> str:
+    shift_type = current_shift_type(now)
+    if shift_type == "day":
+        return "дневная"
+    if shift_type == "evening":
+        return "вечерняя"
+    return "вне смены"
+
+
+def is_late_for_current_shift(now: datetime | None = None) -> bool:
+    now = now or msk_now()
+    shift_type = current_shift_type(now)
+    if shift_type == "day":
+        return now.time() > DAY_SHIFT_LATE_AFTER
+    if shift_type == "evening":
+        return now.time() > EVENING_SHIFT_LATE_AFTER
+    return False
+
+
+def format_shift_window(now: datetime | None = None) -> str:
+    shift_type = current_shift_type(now)
+    if shift_type == "day":
+        return "11:00–17:30 МСК"
+    if shift_type == "evening":
+        return "17:30–00:00 МСК"
+    return "сейчас вне времени смен"
+
+
+def ensure_shift_user(user_id: int):
+    uid = str(user_id)
+    if uid not in SHIFT_STATUS:
+        SHIFT_STATUS[uid] = {
+            "is_on_shift": False,
+            "last_shift_on": "",
+            "last_shift_off": "",
+            "last_shift_type": "",
+            "last_shift_date": "",
+            "last_late": False
+        }
+        save_shift_status(SHIFT_STATUS)
+
+
+def add_fine(user_id: int, amount: int, reason: str, source: str = "auto_late"):
+    entry = {
+        "user_id": int(user_id),
+        "amount": int(amount),
+        "reason": reason,
+        "source": source,
+        "created_at": msk_now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    FINES.append(entry)
+    save_fines(FINES)
+
+
+def get_user_fines(user_id: int) -> List[dict]:
+    return [x for x in FINES if int(x["user_id"]) == int(user_id)]
+
+
+def get_user_weekly_fines_sum(user_id: int) -> int:
+    border = msk_now() - timedelta(days=7)
+    total = 0
+    for fine in get_user_fines(user_id):
+        try:
+            dt = datetime.strptime(fine["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK_TZ)
+            if dt >= border:
+                total += int(fine["amount"])
+        except Exception:
+            continue
+    return total
+
+
+def get_user_total_fines_sum(user_id: int) -> int:
+    return sum(int(x["amount"]) for x in get_user_fines(user_id))
+
+
 def get_profile_text(user_id: int) -> str:
+    ensure_shift_user(user_id)
     profile = USER_PROFILES.get(str(user_id), {})
+    shift = SHIFT_STATUS.get(str(user_id), {})
+
     username = profile.get("username") or "нет"
     first_name = profile.get("first_name") or ""
     last_name = profile.get("last_name") or ""
     full_name = f"{first_name} {last_name}".strip() or "не указано"
-    shift = "на смене" if SHIFT_STATUS.get(str(user_id), False) else "не на смене"
-    return f"ID: {user_id} | @{username} | {full_name} | {shift}"
+
+    is_on_shift = shift.get("is_on_shift", False)
+    last_shift_on = shift.get("last_shift_on") or "не было"
+    last_shift_off = shift.get("last_shift_off") or "не было"
+    last_shift_type = shift.get("last_shift_type") or "неизвестно"
+
+    weekly_sum = get_user_weekly_fines_sum(user_id)
+    total_sum = get_user_total_fines_sum(user_id)
+    fines_count = len(get_user_fines(user_id))
+
+    return (
+        "👤 Ваш профиль\n\n"
+        f"ID: {user_id}\n"
+        f"Username: @{username}\n"
+        f"Имя: {full_name}\n"
+        f"Роль: {get_role_name(user_id)}\n"
+        f"Платформа: {get_platform_name(user_id)}\n"
+        f"Статус: {'на смене' if is_on_shift else 'не на смене'}\n"
+        f"Текущая смена по МСК: {current_shift_name()}\n"
+        f"Последняя отмеченная смена: {last_shift_type}\n"
+        f"Последний выход на смену: {last_shift_on}\n"
+        f"Последний уход со смены: {last_shift_off}\n"
+        f"Штрафов всего: {fines_count}\n"
+        f"Штрафы за 7 дней: {weekly_sum} руб\n"
+        f"Общая сумма штрафов: {total_sum} руб"
+    )
 
 
 def get_platform_users(platform: str) -> List[int]:
@@ -571,7 +730,8 @@ def get_platform_users(platform: str) -> List[int]:
 
 
 def get_deadline_text_for_user(user_id: int) -> str:
-    if SHIFT_STATUS.get(str(user_id), False):
+    ensure_shift_user(user_id)
+    if SHIFT_STATUS.get(str(user_id), {}).get("is_on_shift", False):
         return "⏰ Срок ознакомления: в течение 1 часа, так как вы отмечены как сотрудник на смене."
     return "⏰ Срок ознакомления: до начала вашей следующей смены."
 
@@ -586,13 +746,16 @@ def admin_commands_text() -> str:
         "/workers_steam — список Steam-воркеров\n"
         "/news <ai|steam|all> <текст> — рассылка новости по платформе\n"
         "/fine <user_id> <сумма> <причина> — отправить штраф сотруднику\n"
+        "/weekly_fines — штрафы за последние 7 дней\n"
         "/dialogs — показать активные диалоги Digiseller\n"
         "/debug_dialogs — показать HTML-кусок страницы сообщений\n"
         "/watch_dialogs_on — включить авто-мониторинг диалогов\n"
-        "/watch_dialogs_off — выключить авто-мониторинг диалогов\n\n"
+        "/watch_dialogs_off — выключить авто-мониторинг диалогов\n"
+        "/profile — мой профиль\n\n"
         "Команды работников:\n"
-        "/shift_on — отметить себя на смене\n"
-        "/shift_off — снять себя со смены\n"
+        "/shift_on — выйти на смену\n"
+        "/shift_off — уйти со смены\n"
+        "/profile — мой профиль\n"
         "/start — активация бота\n"
         "/id — показать свой ID"
     )
@@ -616,8 +779,8 @@ def fetch_url(url: str) -> str:
 
 
 def get_negative_review_links() -> List[Dict[str, str]]:
-    html = fetch_url(DIGISELLER_NEGATIVE_URL)
-    soup = BeautifulSoup(html, "html.parser")
+    html_text = fetch_url(DIGISELLER_NEGATIVE_URL)
+    soup = BeautifulSoup(html_text, "html.parser")
 
     found = []
     seen = set()
@@ -661,8 +824,8 @@ def normalize_text(text: str) -> str:
 
 
 def parse_review_page(review_url: str) -> Dict[str, str]:
-    html = fetch_url(review_url)
-    soup = BeautifulSoup(html, "html.parser")
+    html_text = fetch_url(review_url)
+    soup = BeautifulSoup(html_text, "html.parser")
     raw_text = normalize_text(soup.get_text("\n"))
 
     invoice = extract_field(raw_text, "Номер счета")
@@ -712,7 +875,6 @@ def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
     rows: List[dict] = []
     signatures: List[str] = []
 
-    # 1) Основной способ: ищем строки таблицы
     for tr in soup.find_all("tr"):
         cells = tr.find_all("td")
         if len(cells) < 4:
@@ -747,7 +909,6 @@ def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
         rows.append(row)
         signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
 
-    # 2) Запасной способ: ищем emails по ссылкам и соседние ячейки
     if not rows:
         for a_tag in soup.find_all("a", href=True):
             buyer = a_tag.get_text(" ", strip=True)
@@ -786,17 +947,10 @@ def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
             rows.append(row)
             signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
 
-    # 3) Убираем дубликаты
     unique_rows = []
     seen = set()
     for row in rows:
-        key = (
-            row["buyer"],
-            row["product"],
-            row["total_count"],
-            row["new_count"],
-            row["time"]
-        )
+        key = (row["buyer"], row["product"], row["total_count"], row["new_count"], row["time"])
         if key in seen:
             continue
         seen.add(key)
@@ -925,6 +1079,116 @@ async def monitor_dialogs(bot: Bot):
         await asyncio.sleep(DIALOGS_CHECK_INTERVAL_SECONDS)
 
 # =========================================================
+# СМЕНЫ И ШТРАФЫ
+# =========================================================
+async def process_shift_on(user_id: int, bot: Bot) -> str:
+    ensure_shift_user(user_id)
+    now = msk_now()
+    shift_type = current_shift_type(now)
+
+    if shift_type is None:
+        return (
+            "Сейчас нет активного окна смены.\n"
+            "Дневная смена: 11:00–17:30 МСК\n"
+            "Вечерняя смена: 17:30–00:00 МСК"
+        )
+
+    user_shift = SHIFT_STATUS[str(user_id)]
+    if user_shift.get("is_on_shift", False):
+        return "Вы уже отмечены как сотрудник на смене."
+
+    late = is_late_for_current_shift(now)
+    shift_name = "дневная" if shift_type == "day" else "вечерняя"
+
+    user_shift["is_on_shift"] = True
+    user_shift["last_shift_on"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    user_shift["last_shift_type"] = shift_name
+    user_shift["last_shift_date"] = now.strftime("%Y-%m-%d")
+    user_shift["last_late"] = late
+    save_shift_status(SHIFT_STATUS)
+
+    if not late:
+        return (
+            f"✅ Молодец, успел на {shift_name} смену.\n"
+            f"Время отметки: {now.strftime('%H:%M:%S')} МСК\n"
+            f"Окно смены: {format_shift_window(now)}"
+        )
+
+    add_fine(
+        user_id=user_id,
+        amount=LATE_FINE_AMOUNT,
+        reason=f"Опоздание на {shift_name} смену",
+        source="auto_late"
+    )
+
+    fine_text = (
+        f"⚠️ Вы вышли на {shift_name} смену с опозданием.\n"
+        f"Время отметки: {now.strftime('%H:%M:%S')} МСК\n"
+        f"Штраф: {LATE_FINE_AMOUNT} руб"
+    )
+
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"⚠️ Авто-штраф за опоздание\n\n"
+                f"{get_profile_text(user_id)}\n"
+                f"Штраф: {LATE_FINE_AMOUNT} руб\n"
+                f"Причина: опоздание на {shift_name} смену"
+            )
+        except Exception:
+            pass
+
+    return fine_text
+
+
+async def process_shift_off(user_id: int) -> str:
+    ensure_shift_user(user_id)
+    now = msk_now()
+    user_shift = SHIFT_STATUS[str(user_id)]
+
+    if not user_shift.get("is_on_shift", False):
+        return "Вы и так не отмечены как сотрудник на смене."
+
+    user_shift["is_on_shift"] = False
+    user_shift["last_shift_off"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    save_shift_status(SHIFT_STATUS)
+
+    return (
+        "🔴 Вы ушли со смены.\n"
+        f"Время: {now.strftime('%H:%M:%S')} МСК"
+    )
+
+
+def build_weekly_fines_report() -> str:
+    border = msk_now() - timedelta(days=7)
+
+    sums: Dict[int, int] = {}
+    reasons: Dict[int, int] = {}
+
+    for fine in FINES:
+        try:
+            dt = datetime.strptime(fine["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK_TZ)
+        except Exception:
+            continue
+
+        if dt < border:
+            continue
+
+        uid = int(fine["user_id"])
+        sums[uid] = sums.get(uid, 0) + int(fine["amount"])
+        reasons[uid] = reasons.get(uid, 0) + 1
+
+    if not sums:
+        return "За последние 7 дней штрафов нет."
+
+    lines = ["📊 Штрафы за последние 7 дней:\n"]
+    for uid, total in sorted(sums.items(), key=lambda x: x[1], reverse=True):
+        lines.append(f"{get_profile_text(uid)} | штрафов: {reasons[uid]} | сумма: {total} руб")
+
+    return "\n".join(lines)
+
+# =========================================================
 # ХЕНДЛЕРЫ
 # =========================================================
 async def start_handler(message: Message):
@@ -935,6 +1199,7 @@ async def start_handler(message: Message):
     full_name = f"{first_name} {last_name}".strip()
 
     update_profile_from_user(message.from_user)
+    ensure_shift_user(user_id)
 
     is_new = user_id not in USERS
     if is_new:
@@ -966,6 +1231,14 @@ async def start_handler(message: Message):
 
 async def id_handler(message: Message):
     await message.answer(f"Ваш user ID: {message.chat.id}")
+
+
+async def profile_handler(message: Message):
+    ensure_shift_user(message.chat.id)
+    await message.answer(
+        get_profile_text(message.chat.id),
+        reply_markup=profile_keyboard(SHIFT_STATUS[str(message.chat.id)]["is_on_shift"])
+    )
 
 
 async def admin_handler(message: Message):
@@ -1026,19 +1299,17 @@ async def workers_steam_handler(message: Message):
 
 
 async def shift_on_handler(message: Message):
-    user_id = message.chat.id
-    SHIFT_STATUS[str(user_id)] = True
-    save_shift_status(SHIFT_STATUS)
     update_profile_from_user(message.from_user)
-    await message.answer("🟢 Вы отмечены как сотрудник на смене.")
+    ensure_shift_user(message.chat.id)
+    text = await process_shift_on(message.chat.id, message.bot)
+    await message.answer(text, reply_markup=profile_keyboard(True))
 
 
 async def shift_off_handler(message: Message):
-    user_id = message.chat.id
-    SHIFT_STATUS[str(user_id)] = False
-    save_shift_status(SHIFT_STATUS)
     update_profile_from_user(message.from_user)
-    await message.answer("🔴 Вы отмечены как сотрудник вне смены.")
+    ensure_shift_user(message.chat.id)
+    text = await process_shift_off(message.chat.id)
+    await message.answer(text, reply_markup=profile_keyboard(False))
 
 
 async def news_handler(message: Message):
@@ -1111,12 +1382,19 @@ async def fine_handler(message: Message):
         await message.answer("Неверный user_id.")
         return
 
-    amount = parts[2]
+    try:
+        amount = int(parts[2])
+    except ValueError:
+        await message.answer("Сумма штрафа должна быть числом.")
+        return
+
     reason = parts[3]
+
+    add_fine(target_user_id, amount, reason, source="manual")
 
     fine_text = (
         "⚠️ Вам назначен штраф\n\n"
-        f"Сумма штрафа: {amount}\n"
+        f"Сумма штрафа: {amount} руб\n"
         f"Причина: {reason}"
     )
 
@@ -1127,6 +1405,13 @@ async def fine_handler(message: Message):
         await message.answer(f"Не удалось отправить штраф: {e}")
 
 
+async def weekly_fines_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+    await message.answer(build_weekly_fines_report())
+
+
 async def dialogs_handler(message: Message):
     if not is_admin(message.chat.id):
         await message.answer("У вас нет доступа к этой команде.")
@@ -1134,8 +1419,7 @@ async def dialogs_handler(message: Message):
 
     try:
         active_count, new_count_sum, rows = await asyncio.to_thread(parse_dialogs_page)
-        msg = build_dialogs_message(active_count, new_count_sum, rows)
-        await message.answer(msg, disable_web_page_preview=True)
+        await message.answer(build_dialogs_message(active_count, new_count_sum, rows), disable_web_page_preview=True)
     except Exception as e:
         await message.answer(f"Не удалось получить диалоги: {e}")
 
@@ -1148,10 +1432,7 @@ async def debug_dialogs_handler(message: Message):
     try:
         raw_html = await asyncio.to_thread(fetch_url, DIGISELLER_DIALOGS_URL)
         snippet = html.escape(raw_html[:3500])
-        await message.answer(
-            f"<pre>{snippet}</pre>",
-            parse_mode="HTML"
-        )
+        await message.answer(f"<pre>{snippet}</pre>", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"Ошибка debug: {e}")
 
@@ -1183,6 +1464,7 @@ async def acknowledge_handler(callback: CallbackQuery):
 
     user_id = callback.from_user.id
     update_profile_from_user(callback.from_user)
+    ensure_shift_user(user_id)
 
     acked_by = ANNOUNCEMENTS[announcement_id].get("acked_by", [])
 
@@ -1268,6 +1550,30 @@ async def admin_dialogs_check_handler(callback: CallbackQuery):
         await callback.answer("Ошибка", show_alert=True)
         await callback.message.answer(f"Не удалось получить диалоги: {e}")
 
+
+async def my_profile_handler(callback: CallbackQuery):
+    ensure_shift_user(callback.from_user.id)
+    update_profile_from_user(callback.from_user)
+    is_on = SHIFT_STATUS[str(callback.from_user.id)]["is_on_shift"]
+    await callback.message.answer(get_profile_text(callback.from_user.id), reply_markup=profile_keyboard(is_on))
+    await callback.answer()
+
+
+async def shift_on_btn_handler(callback: CallbackQuery):
+    update_profile_from_user(callback.from_user)
+    ensure_shift_user(callback.from_user.id)
+    text = await process_shift_on(callback.from_user.id, callback.bot)
+    await callback.message.answer(text, reply_markup=profile_keyboard(True))
+    await callback.answer()
+
+
+async def shift_off_btn_handler(callback: CallbackQuery):
+    update_profile_from_user(callback.from_user)
+    ensure_shift_user(callback.from_user.id)
+    text = await process_shift_off(callback.from_user.id)
+    await callback.message.answer(text, reply_markup=profile_keyboard(False))
+    await callback.answer()
+
 # =========================================================
 # ЗАПУСК
 # =========================================================
@@ -1282,6 +1588,7 @@ async def main():
 
     dp.message.register(start_handler, CommandStart())
     dp.message.register(id_handler, Command("id"))
+    dp.message.register(profile_handler, Command("profile"))
     dp.message.register(admin_handler, Command("admin"))
     dp.message.register(users_count_handler, Command("users"))
     dp.message.register(list_users_handler, Command("list_users"))
@@ -1291,6 +1598,7 @@ async def main():
     dp.message.register(shift_off_handler, Command("shift_off"))
     dp.message.register(news_handler, Command("news"))
     dp.message.register(fine_handler, Command("fine"))
+    dp.message.register(weekly_fines_handler, Command("weekly_fines"))
     dp.message.register(dialogs_handler, Command("dialogs"))
     dp.message.register(debug_dialogs_handler, Command("debug_dialogs"))
     dp.message.register(watch_dialogs_on_handler, Command("watch_dialogs_on"))
@@ -1301,6 +1609,9 @@ async def main():
     dp.callback_query.register(item_handler, F.data.startswith("item:"))
     dp.callback_query.register(back_main_handler, F.data == "back_main")
     dp.callback_query.register(admin_dialogs_check_handler, F.data == "admin_dialogs_check")
+    dp.callback_query.register(my_profile_handler, F.data == "my_profile")
+    dp.callback_query.register(shift_on_btn_handler, F.data == "shift_on_btn")
+    dp.callback_query.register(shift_off_btn_handler, F.data == "shift_off_btn")
 
     asyncio.create_task(monitor_negative_reviews(bot))
     asyncio.create_task(monitor_dialogs(bot))
