@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 import os
@@ -41,7 +42,7 @@ ADMIN_IDS = [781922474, 135479524, 5384930958]
 # =========================================================
 # РАБОТНИКИ ПО ПЛАТФОРМАМ
 # =========================================================
-AI_WORKERS = [8225013907, 8177004956, 781922474, 1920853728, 1294614140, 844359525]
+AI_WORKERS = [8225013907, 8177004956, 781922474]
 STEAM_WORKERS = [7135999120, 742038308]
 
 # =========================================================
@@ -467,12 +468,15 @@ def save_profiles(data: Dict[str, dict]) -> None:
 
 
 def load_dialogs_state() -> Dict[str, dict]:
-    return load_json_file(DIALOGS_STATE_FILE, {
-        "watch_enabled": True,
-        "last_active_count": None,
-        "last_new_count": None,
-        "last_signature": ""
-    })
+    return load_json_file(
+        DIALOGS_STATE_FILE,
+        {
+            "watch_enabled": True,
+            "last_active_count": None,
+            "last_new_count": None,
+            "last_signature": ""
+        }
+    )
 
 
 def save_dialogs_state(data: Dict[str, dict]) -> None:
@@ -583,6 +587,7 @@ def admin_commands_text() -> str:
         "/news <ai|steam|all> <текст> — рассылка новости по платформе\n"
         "/fine <user_id> <сумма> <причина> — отправить штраф сотруднику\n"
         "/dialogs — показать активные диалоги Digiseller\n"
+        "/debug_dialogs — показать HTML-кусок страницы сообщений\n"
         "/watch_dialogs_on — включить авто-мониторинг диалогов\n"
         "/watch_dialogs_off — выключить авто-мониторинг диалогов\n\n"
         "Команды работников:\n"
@@ -701,53 +706,36 @@ def build_review_message(review: Dict[str, str]) -> str:
 
 
 def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
-    html = fetch_url(DIGISELLER_DIALOGS_URL)
-    soup = BeautifulSoup(html, "html.parser")
+    html_text = fetch_url(DIGISELLER_DIALOGS_URL)
+    soup = BeautifulSoup(html_text, "html.parser")
 
-    rows = []
-    signatures = []
+    rows: List[dict] = []
+    signatures: List[str] = []
 
-    # Ищем все строки таблиц
+    # 1) Основной способ: ищем строки таблицы
     for tr in soup.find_all("tr"):
         cells = tr.find_all("td")
         if len(cells) < 4:
             continue
 
-        buyer_cell = cells[0]
-        product_cell = cells[1]
-        count_cell = cells[2]
-        time_cell = cells[3]
+        buyer = cells[0].get_text(" ", strip=True)
+        product = cells[1].get_text(" ", strip=True)
+        count_info = cells[2].get_text(" ", strip=True)
+        time_info = cells[3].get_text(" ", strip=True)
 
-        buyer = buyer_cell.get_text(" ", strip=True)
-        product = product_cell.get_text(" ", strip=True)
-        count_info = count_cell.get_text(" ", strip=True)
-        time_info = time_cell.get_text(" ", strip=True)
-
-        # Пропускаем мусор
         if not buyer or "@" not in buyer:
             continue
         if buyer.lower() == "support@digiseller.com":
             continue
-        if not product or product.lower() in {"все товары", "не найдено", "sign in"}:
+        if not product or product.lower() in {"sign in", "не найдено", "все товары"}:
             continue
-
-        # Парсим "всего/новых"
-        total_count = 0
-        new_count = 0
 
         match = re.search(r"(\d+)\s*/\s*(\d+)", count_info)
-        if match:
-            total_count = int(match.group(1))
-            new_count = int(match.group(2))
-        else:
-            nums = re.findall(r"\d+", count_info)
-            if len(nums) >= 2:
-                total_count = int(nums[0])
-                new_count = int(nums[1])
-
-        # Берем только реальные строки, где есть сообщения
-        if total_count == 0 and new_count == 0:
+        if not match:
             continue
+
+        total_count = int(match.group(1))
+        new_count = int(match.group(2))
 
         row = {
             "buyer": buyer,
@@ -759,18 +747,62 @@ def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
         rows.append(row)
         signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
 
-    # Убираем дубликаты
+    # 2) Запасной способ: ищем emails по ссылкам и соседние ячейки
+    if not rows:
+        for a_tag in soup.find_all("a", href=True):
+            buyer = a_tag.get_text(" ", strip=True)
+            if "@" not in buyer:
+                continue
+            if buyer.lower() == "support@digiseller.com":
+                continue
+
+            parent_tr = a_tag.find_parent("tr")
+            if not parent_tr:
+                continue
+
+            cells = parent_tr.find_all("td")
+            if len(cells) < 4:
+                continue
+
+            buyer = cells[0].get_text(" ", strip=True)
+            product = cells[1].get_text(" ", strip=True)
+            count_info = cells[2].get_text(" ", strip=True)
+            time_info = cells[3].get_text(" ", strip=True)
+
+            match = re.search(r"(\d+)\s*/\s*(\d+)", count_info)
+            if not match:
+                continue
+
+            total_count = int(match.group(1))
+            new_count = int(match.group(2))
+
+            row = {
+                "buyer": buyer,
+                "product": product,
+                "total_count": total_count,
+                "new_count": new_count,
+                "time": time_info
+            }
+            rows.append(row)
+            signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
+
+    # 3) Убираем дубликаты
     unique_rows = []
     seen = set()
     for row in rows:
-        key = (row["buyer"], row["product"], row["total_count"], row["new_count"], row["time"])
+        key = (
+            row["buyer"],
+            row["product"],
+            row["total_count"],
+            row["new_count"],
+            row["time"]
+        )
         if key in seen:
             continue
         seen.add(key)
         unique_rows.append(row)
 
     rows = unique_rows
-
     active_count = len(rows)
     new_count_sum = sum(row["new_count"] for row in rows)
     signature = "||".join(signatures)
@@ -804,7 +836,7 @@ def build_dialogs_message(active_count: int, new_count_sum: int, rows: List[dict
     return "\n".join(lines)
 
 # =========================================================
-# РАССЫЛКА
+# МОНИТОРИНГ
 # =========================================================
 async def broadcast_to_all_users(bot: Bot, text: str) -> None:
     for user_id in USERS:
@@ -828,7 +860,6 @@ async def monitor_negative_reviews(bot: Bot):
 
             for review_meta in reviews:
                 review_id = review_meta["id"]
-
                 if review_id in SENT_REVIEWS:
                     continue
 
@@ -873,8 +904,9 @@ async def monitor_dialogs(bot: Bot):
             )
 
             if changed:
-                msg = build_dialogs_message(active_count, new_count_sum, rows)
-                notify_text = f"🔔 Обновление по активным сообщениям\n\n{msg}"
+                notify_text = "🔔 Обновление по активным сообщениям\n\n" + build_dialogs_message(
+                    active_count, new_count_sum, rows
+                )
 
                 for admin_id in ADMIN_IDS:
                     try:
@@ -1108,6 +1140,22 @@ async def dialogs_handler(message: Message):
         await message.answer(f"Не удалось получить диалоги: {e}")
 
 
+async def debug_dialogs_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    try:
+        raw_html = await asyncio.to_thread(fetch_url, DIGISELLER_DIALOGS_URL)
+        snippet = html.escape(raw_html[:3500])
+        await message.answer(
+            f"<pre>{snippet}</pre>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"Ошибка debug: {e}")
+
+
 async def watch_dialogs_on_handler(message: Message):
     if not is_admin(message.chat.id):
         await message.answer("У вас нет доступа к этой команде.")
@@ -1244,6 +1292,7 @@ async def main():
     dp.message.register(news_handler, Command("news"))
     dp.message.register(fine_handler, Command("fine"))
     dp.message.register(dialogs_handler, Command("dialogs"))
+    dp.message.register(debug_dialogs_handler, Command("debug_dialogs"))
     dp.message.register(watch_dialogs_on_handler, Command("watch_dialogs_on"))
     dp.message.register(watch_dialogs_off_handler, Command("watch_dialogs_off"))
 
