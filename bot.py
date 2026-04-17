@@ -703,25 +703,35 @@ def build_review_message(review: Dict[str, str]) -> str:
 def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
     html = fetch_url(DIGISELLER_DIALOGS_URL)
     soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text("\n", strip=True)
 
     rows = []
     signatures = []
 
-    table_rows = soup.find_all("tr")
-    for tr in table_rows:
+    # Ищем все строки таблиц
+    for tr in soup.find_all("tr"):
         cells = tr.find_all("td")
         if len(cells) < 4:
             continue
 
-        buyer = cells[0].get_text(" ", strip=True)
-        product = cells[1].get_text(" ", strip=True)
-        count_info = cells[2].get_text(" ", strip=True)
-        time_info = cells[3].get_text(" ", strip=True)
+        buyer_cell = cells[0]
+        product_cell = cells[1]
+        count_cell = cells[2]
+        time_cell = cells[3]
 
-        if not buyer or not product or not count_info:
+        buyer = buyer_cell.get_text(" ", strip=True)
+        product = product_cell.get_text(" ", strip=True)
+        count_info = count_cell.get_text(" ", strip=True)
+        time_info = time_cell.get_text(" ", strip=True)
+
+        # Пропускаем мусор
+        if not buyer or "@" not in buyer:
+            continue
+        if buyer.lower() == "support@digiseller.com":
+            continue
+        if not product or product.lower() in {"все товары", "не найдено", "sign in"}:
             continue
 
+        # Парсим "всего/новых"
         total_count = 0
         new_count = 0
 
@@ -735,6 +745,10 @@ def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
                 total_count = int(nums[0])
                 new_count = int(nums[1])
 
+        # Берем только реальные строки, где есть сообщения
+        if total_count == 0 and new_count == 0:
+            continue
+
         row = {
             "buyer": buyer,
             "product": product,
@@ -745,41 +759,17 @@ def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
         rows.append(row)
         signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
 
-    # запасной вариант, если таблицу не распарсило
-    if not rows:
-        possible_buyers = []
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        for i, line in enumerate(lines):
-            if "@" in line and "." in line:
-                buyer = line
-                product = lines[i + 1] if i + 1 < len(lines) else "Не найдено"
-                count_info = ""
-                time_info = ""
-                for j in range(i + 2, min(i + 6, len(lines))):
-                    if re.search(r"\d+\s*/\s*\d+", lines[j]):
-                        count_info = lines[j]
-                        if j + 1 < len(lines):
-                            time_info = lines[j + 1]
-                        break
+    # Убираем дубликаты
+    unique_rows = []
+    seen = set()
+    for row in rows:
+        key = (row["buyer"], row["product"], row["total_count"], row["new_count"], row["time"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_rows.append(row)
 
-                total_count = 0
-                new_count = 0
-                match = re.search(r"(\d+)\s*/\s*(\d+)", count_info)
-                if match:
-                    total_count = int(match.group(1))
-                    new_count = int(match.group(2))
-
-                row = {
-                    "buyer": buyer,
-                    "product": product,
-                    "total_count": total_count,
-                    "new_count": new_count,
-                    "time": time_info
-                }
-                possible_buyers.append(row)
-                signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
-
-        rows = possible_buyers
+    rows = unique_rows
 
     active_count = len(rows)
     new_count_sum = sum(row["new_count"] for row in rows)
