@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -21,13 +21,17 @@ DIGISELLER_COOKIE = os.getenv("COOKIE")
 
 DIGISELLER_NEGATIVE_URL = "https://my.digiseller.com/inside/responses.asp?gb=2&shop=-1"
 DIGISELLER_BASE_URL = "https://my.digiseller.com/inside/"
+DIGISELLER_DIALOGS_URL = "https://my.digiseller.com/inside/messages.asp"
+
 CHECK_INTERVAL_SECONDS = 60
+DIALOGS_CHECK_INTERVAL_SECONDS = 10
 
 USERS_FILE = "users.json"
 SENT_REVIEWS_FILE = "sent_reviews.json"
 ANNOUNCEMENTS_FILE = "announcements.json"
 SHIFT_STATUS_FILE = "shift_status.json"
 PROFILES_FILE = "profiles.json"
+DIALOGS_STATE_FILE = "dialogs_state.json"
 
 # =========================================================
 # АДМИНЫ
@@ -37,10 +41,8 @@ ADMIN_IDS = [781922474, 135479524, 5384930958]
 # =========================================================
 # РАБОТНИКИ ПО ПЛАТФОРМАМ
 # =========================================================
-AI_WORKERS = [8225013907, 8177004956, 781922474]
+AI_WORKERS = [8225013907, 8177004956, 781922474, 1920853728, 1294614140, 844359525]
 STEAM_WORKERS = [7135999120, 742038308]
-
-ALL_KNOWN_WORKERS = sorted(set(AI_WORKERS + STEAM_WORKERS))
 
 # =========================================================
 # ИНСТРУКЦИИ
@@ -107,6 +109,7 @@ DATA = {
             }
         }
     },
+
     "claude": {
         "title": "Claude",
         "items": {
@@ -198,6 +201,7 @@ DATA = {
             }
         }
     },
+
     "grok": {
         "title": "Grok",
         "items": {
@@ -218,6 +222,7 @@ DATA = {
             }
         }
     },
+
     "spotify": {
         "title": "Spotify",
         "items": {
@@ -237,9 +242,114 @@ DATA = {
                     "Используйте почту и пароль для входа\n"
                     "После этого вы сможете входить в Spotify напрямую — по почте и паролю, без использования Facebook."
                 )
+            },
+            "apple_email_password": {
+                "button": "Вход через Apple ID",
+                "text": (
+                    "Как привязать электронную почту и пароль к аккаунту Spotify, зарегистрированному через Apple ID:\n\n"
+                    "Если вы изначально создали аккаунт Spotify с помощью Apple ID, но теперь хотите входить через электронную почту и пароль, выполните следующие шаги:\n\n"
+                    "1. Войдите в аккаунт Spotify через Apple\n"
+                    "Перейдите на сайт: https://www.spotify.com/account\n\n"
+                    "Выберите вход через Apple ID и авторизуйтесь.\n\n"
+                    "2. Убедитесь, что в аккаунте указана действующая почта\n"
+                    "На странице «Обзор аккаунта» (Account overview) проверьте, какая электронная почта указана.\n\n"
+                    "Важно: если при регистрации вы выбрали опцию «Скрыть мой email» (Hide My Email), "
+                    "у вас будет случайный адрес от Apple (например, xyz123@privaterelay.appleid.com).\n\n"
+                    "Рекомендуется заменить его на ваш реальный адрес — для этого нажмите «Изменить» (Edit) рядом с полем email.\n\n"
+                    "3. Установите пароль\n"
+                    "Так как вы использовали Apple ID, пароль Spotify может не быть установлен. Чтобы его создать:\n\n"
+                    "Перейдите на страницу сброса пароля:\n"
+                    "https://www.spotify.com/password-reset/\n\n"
+                    "Введите ту почту, которая указана в вашем аккаунте Spotify "
+                    "(в том числе, если это адрес вида @privaterelay.appleid.com).\n\n"
+                    "Пройдите по ссылке из письма и задайте новый пароль.\n\n"
+                    "4. Вход через email и пароль\n"
+                    "После установки пароля вы сможете входить в Spotify напрямую, используя вашу электронную почту и пароль — "
+                    "без необходимости использовать Apple ID."
+                )
+            },
+            "google_email_password": {
+                "button": "Вход через Google",
+                "text": (
+                    "Как привязать почту и пароль к аккаунту Spotify (если используется вход через Google):\n\n"
+                    "Если вы ранее регистрировались в Spotify через Google, но теперь хотите использовать вход "
+                    "по электронной почте и паролю, выполните следующие шаги:\n\n"
+                    "1. Перейдите в настройки аккаунта\n"
+                    "Откройте сайт Spotify: https://www.spotify.com/account\n\n"
+                    "Войдите в свой аккаунт через Google, как обычно.\n\n"
+                    "2. Убедитесь, что в аккаунте указана электронная почта\n"
+                    "На странице «Обзор аккаунта» (Account overview) проверьте, указана ли ваша электронная почта.\n\n"
+                    "При необходимости вы можете изменить её в настройках.\n\n"
+                    "3. Установите пароль для входа\n"
+                    "Если вы регистрировались через Google, у вас может не быть установленного пароля. Чтобы его создать:\n\n"
+                    "Перейдите на страницу сброса пароля:\n"
+                    "https://www.spotify.com/password-reset/\n\n"
+                    "Введите адрес электронной почты, указанный в вашем аккаунте.\n\n"
+                    "Перейдите по ссылке в письме и задайте новый пароль.\n\n"
+                    "4. Используйте email и пароль для входа\n"
+                    "После установки пароля вы сможете входить в Spotify, используя вашу почту и заданный пароль — "
+                    "без необходимости использовать Google-аккаунт."
+                )
+            },
+            "payment_regions": {
+                "button": "Регионы подписок",
+                "text": (
+                    "🔴 Регион оплаты подписки:\n"
+                    "➖ Подписка Индивидуал 3-6 месяцев - Египет\n"
+                    "➖ Подписка Индивидуал 12 месяцев - Египет\n"
+                    "➖ Подписки 1 месяц Индивидуал, Дуо, Фемели - Нигерия\n"
+                    "➖ Подписки Дуо 3-6-12 месяцев - Египет\n"
+                    "➖ Подписки Platinum/Standard/Lite - Индия"
+                )
+            },
+            "lossless": {
+                "button": "Lossless уже доступен",
+                "text": (
+                    "Если у тебя уже Premium-подписка, возможно, lossless уже доступен — "
+                    "просто нужно проверить настройки и обновить приложение.\n"
+                    " • Тебе не обязательно менять на новый тариф, если lossless уже поддерживается в твоём Premium."
+                )
+            },
+            "duo_different_regions": {
+                "button": "Spotify Duo разные регионы",
+                "text": (
+                    "Как добавить второй аккаунт в Spotify Duo, если регионы разные\n\n"
+                    "ШАГ 1: Подготовь VPN с подключением к Нигерии\n"
+                    " • Используй любой VPN с нигерийским сервером:\n"
+                    " • Windscribe, Surfshark, ExpressVPN и т.п.\n"
+                    " • Важно: подключать VPN нужно на устройстве, где ты будешь менять регион второго аккаунта и принимать приглашение.\n\n"
+                    "⸻\n\n"
+                    "ШАГ 2: Измени регион второго аккаунта на Нигерию\n"
+                    " 1. Подключи VPN к Нигерии.\n"
+                    " 2. Зайди во второй аккаунт Spotify: spotify.com/account. (https://www.spotify.com/account)\n"
+                    " 3. Нажми Edit Profile / Редактировать профиль.\n"
+                    " 4. В поле Country / Страна выбери Nigeria.\n"
+                    " • Если поле недоступно — выйди из аккаунта и заново зайди под VPN, тогда оно появится.\n"
+                    " 5. Сохрани изменения.\n\n"
+                    "⸻\n\n"
+                    "ШАГ 3: Прими приглашение от Duo\n"
+                    " 1. На основном аккаунте (где Duo) зайди на: spotify.com/account/duo. (https://www.spotify.com/account/duo)\n"
+                    " 2. Нажми “Send invite” / Отправить приглашение.\n"
+                    " 3. Введи email второго аккаунта и отправь.\n"
+                    " 4. На втором аккаунте:\n"
+                    " • Открой письмо с приглашением.\n"
+                    " • Перейди по ссылке.\n"
+                    " • VPN на этом устройстве должен быть тоже включён и настроен на Нигерию.\n"
+                    " • Введи тот же адрес, что указан в Duo (например: 12 Adebayo Street, Lagos).\n"
+                    " • Подтверди.\n\n"
+                    "⸻\n\n"
+                    "ВАЖНО:\n"
+                    " • Spotify проверяет, чтобы оба аккаунта были в одной стране и на одном адресе.\n"
+                    " • Если VPN не используется — регион и адрес не совпадут, и добавление не сработает.\n"
+                    " • Если пишет, что невозможно присоединиться — проверь:\n"
+                    " • Регион второго аккаунта (в настройках),\n"
+                    " • Наличие VPN в момент принятия,\n"
+                    " • Адрес — должен быть в точности такой же."
+                )
             }
         }
     },
+
     "kling": {
         "title": "Kling",
         "items": {
@@ -251,9 +361,17 @@ DATA = {
                     "В открывшемся окне выбрать подходящую подписку и нажать по ней\n"
                     "Как откроется окно оплаты скинуть в чат"
                 )
+            },
+            "cancel_plan": {
+                "button": "Отменить автооплату",
+                "text": (
+                    "Пожалуйста отмените план нажав по Manage plan затем cancel plan указав любой из причин. "
+                    "Это действие не отменит саму подписку а следующую оплату. Надеемся на ваше понимание"
+                )
             }
         }
     },
+
     "midjourney": {
         "title": "Midjourney",
         "items": {
@@ -348,11 +466,25 @@ def save_profiles(data: Dict[str, dict]) -> None:
     save_json_file(PROFILES_FILE, data)
 
 
+def load_dialogs_state() -> Dict[str, dict]:
+    return load_json_file(DIALOGS_STATE_FILE, {
+        "watch_enabled": True,
+        "last_active_count": None,
+        "last_new_count": None,
+        "last_signature": ""
+    })
+
+
+def save_dialogs_state(data: Dict[str, dict]) -> None:
+    save_json_file(DIALOGS_STATE_FILE, data)
+
+
 USERS: Set[int] = load_users()
 SENT_REVIEWS: Set[str] = load_sent_reviews()
 ANNOUNCEMENTS: Dict[str, dict] = load_announcements()
 SHIFT_STATUS: Dict[str, bool] = load_shift_status()
 USER_PROFILES: Dict[str, dict] = load_profiles()
+DIALOGS_STATE: Dict[str, dict] = load_dialogs_state()
 
 # =========================================================
 # КЛАВИАТУРЫ
@@ -388,6 +520,12 @@ def acknowledge_keyboard(announcement_id: str):
     builder.adjust(1)
     return builder.as_markup()
 
+
+def admin_dialogs_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📨 Проверить диалоги", callback_data="admin_dialogs_check")
+    builder.adjust(1)
+    return builder.as_markup()
 
 # =========================================================
 # HELPER
@@ -443,14 +581,16 @@ def admin_commands_text() -> str:
         "/workers_ai — список AI-воркеров\n"
         "/workers_steam — список Steam-воркеров\n"
         "/news <ai|steam|all> <текст> — рассылка новости по платформе\n"
-        "/fine <user_id> <сумма> <причина> — отправить штраф сотруднику\n\n"
+        "/fine <user_id> <сумма> <причина> — отправить штраф сотруднику\n"
+        "/dialogs — показать активные диалоги Digiseller\n"
+        "/watch_dialogs_on — включить авто-мониторинг диалогов\n"
+        "/watch_dialogs_off — выключить авто-мониторинг диалогов\n\n"
         "Команды работников:\n"
         "/shift_on — отметить себя на смене\n"
         "/shift_off — снять себя со смены\n"
         "/start — активация бота\n"
         "/id — показать свой ID"
     )
-
 
 # =========================================================
 # DIGISELLER
@@ -560,6 +700,119 @@ def build_review_message(review: Dict[str, str]) -> str:
     )
 
 
+def parse_dialogs_page() -> Tuple[int, int, List[dict]]:
+    html = fetch_url(DIGISELLER_DIALOGS_URL)
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n", strip=True)
+
+    rows = []
+    signatures = []
+
+    table_rows = soup.find_all("tr")
+    for tr in table_rows:
+        cells = tr.find_all("td")
+        if len(cells) < 4:
+            continue
+
+        buyer = cells[0].get_text(" ", strip=True)
+        product = cells[1].get_text(" ", strip=True)
+        count_info = cells[2].get_text(" ", strip=True)
+        time_info = cells[3].get_text(" ", strip=True)
+
+        if not buyer or not product or not count_info:
+            continue
+
+        total_count = 0
+        new_count = 0
+
+        match = re.search(r"(\d+)\s*/\s*(\d+)", count_info)
+        if match:
+            total_count = int(match.group(1))
+            new_count = int(match.group(2))
+        else:
+            nums = re.findall(r"\d+", count_info)
+            if len(nums) >= 2:
+                total_count = int(nums[0])
+                new_count = int(nums[1])
+
+        row = {
+            "buyer": buyer,
+            "product": product,
+            "total_count": total_count,
+            "new_count": new_count,
+            "time": time_info
+        }
+        rows.append(row)
+        signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
+
+    # запасной вариант, если таблицу не распарсило
+    if not rows:
+        possible_buyers = []
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for i, line in enumerate(lines):
+            if "@" in line and "." in line:
+                buyer = line
+                product = lines[i + 1] if i + 1 < len(lines) else "Не найдено"
+                count_info = ""
+                time_info = ""
+                for j in range(i + 2, min(i + 6, len(lines))):
+                    if re.search(r"\d+\s*/\s*\d+", lines[j]):
+                        count_info = lines[j]
+                        if j + 1 < len(lines):
+                            time_info = lines[j + 1]
+                        break
+
+                total_count = 0
+                new_count = 0
+                match = re.search(r"(\d+)\s*/\s*(\d+)", count_info)
+                if match:
+                    total_count = int(match.group(1))
+                    new_count = int(match.group(2))
+
+                row = {
+                    "buyer": buyer,
+                    "product": product,
+                    "total_count": total_count,
+                    "new_count": new_count,
+                    "time": time_info
+                }
+                possible_buyers.append(row)
+                signatures.append(f"{buyer}|{product}|{total_count}|{new_count}|{time_info}")
+
+        rows = possible_buyers
+
+    active_count = len(rows)
+    new_count_sum = sum(row["new_count"] for row in rows)
+    signature = "||".join(signatures)
+
+    DIALOGS_STATE["last_signature_temp"] = signature
+    return active_count, new_count_sum, rows
+
+
+def build_dialogs_message(active_count: int, new_count_sum: int, rows: List[dict]) -> str:
+    lines = [
+        f"📨 Активные диалоги Digiseller: {active_count}",
+        f"🆕 Новых сообщений: {new_count_sum}",
+        ""
+    ]
+
+    if not rows:
+        lines.append("Сейчас активных диалогов не найдено.")
+        return "\n".join(lines)
+
+    for idx, row in enumerate(rows[:20], start=1):
+        lines.append(
+            f"{idx}. {row['buyer']}\n"
+            f"   Товар: {row['product']}\n"
+            f"   Сообщений всего/новых: {row['total_count']} / {row['new_count']}\n"
+            f"   Время: {row['time']}\n"
+        )
+
+    if len(rows) > 20:
+        lines.append(f"... и ещё {len(rows) - 20}")
+
+    return "\n".join(lines)
+
 # =========================================================
 # РАССЫЛКА
 # =========================================================
@@ -602,6 +855,52 @@ async def monitor_negative_reviews(bot: Bot):
 
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
+
+async def monitor_dialogs(bot: Bot):
+    await asyncio.sleep(8)
+
+    while True:
+        try:
+            if not DIALOGS_STATE.get("watch_enabled", True):
+                await asyncio.sleep(DIALOGS_CHECK_INTERVAL_SECONDS)
+                continue
+
+            if not DIGISELLER_COOKIE:
+                await asyncio.sleep(DIALOGS_CHECK_INTERVAL_SECONDS)
+                continue
+
+            active_count, new_count_sum, rows = await asyncio.to_thread(parse_dialogs_page)
+            current_signature = DIALOGS_STATE.get("last_signature_temp", "")
+
+            last_active_count = DIALOGS_STATE.get("last_active_count")
+            last_new_count = DIALOGS_STATE.get("last_new_count")
+            last_signature = DIALOGS_STATE.get("last_signature", "")
+
+            changed = (
+                last_active_count != active_count
+                or last_new_count != new_count_sum
+                or last_signature != current_signature
+            )
+
+            if changed:
+                msg = build_dialogs_message(active_count, new_count_sum, rows)
+                notify_text = f"🔔 Обновление по активным сообщениям\n\n{msg}"
+
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await bot.send_message(admin_id, notify_text, disable_web_page_preview=True)
+                    except Exception as e:
+                        logging.warning(f"Не удалось отправить админу {admin_id} обновление по диалогам: {e}")
+
+                DIALOGS_STATE["last_active_count"] = active_count
+                DIALOGS_STATE["last_new_count"] = new_count_sum
+                DIALOGS_STATE["last_signature"] = current_signature
+                save_dialogs_state(DIALOGS_STATE)
+
+        except Exception as e:
+            logging.exception(f"Ошибка мониторинга диалогов: {e}")
+
+        await asyncio.sleep(DIALOGS_CHECK_INTERVAL_SECONDS)
 
 # =========================================================
 # ХЕНДЛЕРЫ
@@ -651,7 +950,7 @@ async def admin_handler(message: Message):
     if not is_admin(message.chat.id):
         await message.answer("У вас нет доступа к этой команде.")
         return
-    await message.answer(admin_commands_text())
+    await message.answer(admin_commands_text(), reply_markup=admin_dialogs_keyboard())
 
 
 async def users_count_handler(message: Message):
@@ -806,6 +1105,37 @@ async def fine_handler(message: Message):
         await message.answer(f"Не удалось отправить штраф: {e}")
 
 
+async def dialogs_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    try:
+        active_count, new_count_sum, rows = await asyncio.to_thread(parse_dialogs_page)
+        msg = build_dialogs_message(active_count, new_count_sum, rows)
+        await message.answer(msg, disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"Не удалось получить диалоги: {e}")
+
+
+async def watch_dialogs_on_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+    DIALOGS_STATE["watch_enabled"] = True
+    save_dialogs_state(DIALOGS_STATE)
+    await message.answer("✅ Авто-мониторинг диалогов включен.")
+
+
+async def watch_dialogs_off_handler(message: Message):
+    if not is_admin(message.chat.id):
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+    DIALOGS_STATE["watch_enabled"] = False
+    save_dialogs_state(DIALOGS_STATE)
+    await message.answer("🛑 Авто-мониторинг диалогов выключен.")
+
+
 async def acknowledge_handler(callback: CallbackQuery):
     _, announcement_id = callback.data.split(":", 1)
 
@@ -886,6 +1216,20 @@ async def back_main_handler(callback: CallbackQuery):
     await callback.answer()
 
 
+async def admin_dialogs_check_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    try:
+        active_count, new_count_sum, rows = await asyncio.to_thread(parse_dialogs_page)
+        msg = build_dialogs_message(active_count, new_count_sum, rows)
+        await callback.message.answer(msg, disable_web_page_preview=True)
+        await callback.answer("Обновлено")
+    except Exception as e:
+        await callback.answer("Ошибка", show_alert=True)
+        await callback.message.answer(f"Не удалось получить диалоги: {e}")
+
 # =========================================================
 # ЗАПУСК
 # =========================================================
@@ -909,19 +1253,24 @@ async def main():
     dp.message.register(shift_off_handler, Command("shift_off"))
     dp.message.register(news_handler, Command("news"))
     dp.message.register(fine_handler, Command("fine"))
+    dp.message.register(dialogs_handler, Command("dialogs"))
+    dp.message.register(watch_dialogs_on_handler, Command("watch_dialogs_on"))
+    dp.message.register(watch_dialogs_off_handler, Command("watch_dialogs_off"))
 
     dp.callback_query.register(acknowledge_handler, F.data.startswith("ack:"))
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
     dp.callback_query.register(item_handler, F.data.startswith("item:"))
     dp.callback_query.register(back_main_handler, F.data == "back_main")
+    dp.callback_query.register(admin_dialogs_check_handler, F.data == "admin_dialogs_check")
 
     asyncio.create_task(monitor_negative_reviews(bot))
+    asyncio.create_task(monitor_dialogs(bot))
+
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 
 
 
