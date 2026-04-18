@@ -1520,47 +1520,40 @@ def build_dialogs_message(active_count: int, new_count_sum: int, rows: List[dict
 # =========================================================
 async def process_shift_on(user_id: int, bot: Bot) -> str:
     ensure_shift_user(user_id)
+
     now = msk_now()
-    shift_type = current_shift_type(now)
-
-    if shift_type is None:
-        return (
-            "⏸ Сейчас нет активного окна смены.\n"
-            "🌞 Дневная: 11:00–17:30 МСК\n"
-            "🌙 Вечерняя: 17:30–00:00 МСК"
-        )
-
-    scheduled_today = get_schedule_for_day(today_msk_str()).get(shift_type, [])
-    if user_id not in scheduled_today:
-        return (
-            f"⚠️ У вас сейчас нет смены в графике.\n"
-            f"Текущая смена: {current_shift_name(now)}"
-        )
-
     user_shift = SHIFT_STATUS[str(user_id)]
-    if user_shift.get("is_on_shift", False):
-        return "🟢 Вы уже отмечены как сотрудник на смене."
 
-    shift_name = "дневная" if shift_type == "day" else "вечерняя"
-    shift_key = f"{today_msk_str()}:{shift_type}"
-    late = is_late_for_shift(now, shift_type)
-    exact_bonus = is_exact_start_bonus(now, shift_type)
+    # Определяем тип смены
+    hour = now.hour
+    minute = now.minute
 
-    current_joined = score_table_for_shift(today_msk_str(), shift_type)
-    is_first_on_shift = len(current_joined) == 0
+    if 11 <= hour < 17 or (hour == 17 and minute < 30):
+        shift_name = "Дневная"
+        shift_start = now.replace(hour=11, minute=0, second=0, microsecond=0)
+    else:
+        shift_name = "Вечерняя"
+        if hour < 11:
+            shift_start = now.replace(hour=17, minute=30, second=0, microsecond=0)
+        else:
+            shift_start = now.replace(hour=17, minute=30, second=0, microsecond=0)
 
+    # Проверка опоздания
+    late_delta = (now - shift_start).total_seconds() / 60
+    late = late_delta > 15
+    exact_bonus = late_delta <= 1
+
+    # Первый на смене
+    today_key = now.strftime("%Y-%m-%d") + "_" + shift_name
+    is_first_on_shift = not any(
+        s.get("current_shift_key") == today_key
+        for s in SHIFT_STATUS.values()
+    )
+
+    # Обновляем статус
     user_shift["is_on_shift"] = True
     user_shift["last_shift_on"] = now.strftime("%Y-%m-%d %H:%M:%S")
-    user_shift["last_shift_type"] = shift_name
-    user_shift["last_shift_date"] = today_msk_str()
-    user_shift["last_late"] = late
-    user_shift["current_shift_key"] = shift_key
-
-    if late:
-        user_shift["streak"] = 0
-    else:
-        user_shift["streak"] = int(user_shift.get("streak", 0)) + 1
-
+    user_shift["current_shift_key"] = today_key
     save_shift_status(SHIFT_STATUS)
 
     messages = [
@@ -1568,6 +1561,7 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
         f"🕒 Время отметки: {now.strftime('%H:%M:%S')} МСК"
     ]
 
+    # Логика штрафов / бонусов
     if late:
         add_fine(user_id, LATE_FINE_AMOUNT, f"Опоздание на {shift_name} смену", "auto_late")
         messages.append(f"⚠️ Вы опоздали. Штраф: {LATE_FINE_AMOUNT} руб")
@@ -1580,22 +1574,25 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
 
     if is_first_on_shift and not late:
         add_score(user_id, 1, "Первый на смене")
-        messages.append("🏁 Бонус +1: вы первый на этой смене")
+        messages.append("🚀 Бонус +1: вы первый на этой смене")
 
+    # Уведомление админам о штрафе
     if late:
-    for admin_id in ADMIN_IDS:
-        try:
-            await bot.send_message(
-                admin_id,
-                f"⚠️ Авто-штраф за опоздание\n"
-                f"{get_short_user_label(user_id)} | {get_platform_name(user_id)}\n"
-                f"💸 {LATE_FINE_AMOUNT} руб | {shift_name} смена"
-            )
-        except Exception:
-            pass
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"⚠️ Авто-штраф за опоздание\n"
+                    f"{get_short_user_label(user_id)} | {get_platform_name(user_id)}\n"
+                    f"💸 {LATE_FINE_AMOUNT} руб | {shift_name} смена"
+                )
+            except Exception:
+                pass
 
-await notify_staff_group_shift(bot, user_id, "on")
-return "\n".join(messages)
+    # Уведомление в общую группу
+    await notify_staff_group_shift(bot, user_id, "on")
+
+    return "\n".join(messages)
 
 
 async def process_shift_off(user_id: int, bot: Bot | None = None) -> str:
