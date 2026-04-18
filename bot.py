@@ -1582,7 +1582,7 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
         add_score(user_id, 1, "Первый на смене")
         messages.append("🏁 Бонус +1: вы первый на этой смене")
 
-    if late:
+        if late:
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
@@ -1593,8 +1593,9 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
                 )
             except Exception:
                 pass
-await notify_staff_group_shift(bot, user_id, "on")
- return "\n".join(messages)
+
+    await notify_staff_group_shift(bot, user_id, "on")
+    return "\n".join(messages)
 
 
 async def process_shift_off(user_id: int, bot: Bot | None = None) -> str:
