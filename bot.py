@@ -1572,7 +1572,7 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
             "🌙 На вечернюю можно отмечаться с 17:20 МСК"
         )
     else:
-        return "⏸ Сейчас нет активного окна для выхода на смену.
+        return "⏸ Сейчас нет активного окна для выхода на смену."
 
     if user_shift.get("is_on_shift", False):
         return "🟢 Вы уже отмечены как сотрудник на смене."
