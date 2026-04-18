@@ -41,6 +41,24 @@ DISPLAY_NAMES = {
     844359525: "Сико",
     742038308: "Далхат",
     1294614140: "Диас",
+    1163420256: "Ибрагим",
+}
+
+WORKER_AREAS = {
+    781922474: "Plati",        # Диля
+    8177004956: "GGsel",       # Костя
+    7443195793: "Plati",       # Тима
+    1294614140: "GGsel",       # Диас
+    844359525: "GGsel",        # Сико
+    5646910006: "Plati",       # Миша
+    8225013907: "GGsel",       # Кайсар
+    1920853728: "FanPay AI",   # Эльвира
+    1163420256: "GGsel",        # Ибрагим
+
+    742038308: "Steam",        # Далхат
+    5493517866: "Steam",       # Бекболат
+    1312771702: "Steam",       # Максат
+    7135999120: "Steam",       # Расул
 }
 
 MSK_TZ = ZoneInfo("Europe/Moscow")
@@ -714,6 +732,12 @@ REQUESTS: List[dict] = load_requests()
 def msk_now() -> datetime:
     return datetime.now(MSK_TZ)
 
+def get_worker_area(user_id: int) -> str:
+    return WORKER_AREAS.get(user_id, get_platform_name(user_id))
+
+def is_private_chat(message: Message) -> bool:
+    return message.chat.type == "private"
+
 
 def today_msk_str() -> str:
     return msk_now().strftime("%Y-%m-%d")
@@ -1168,12 +1192,12 @@ async def notify_staff_group_shift(bot: Bot, user_id: int, action: str) -> None:
         return
 
     worker_name = get_short_user_label(user_id)
-    platform = get_platform_name(user_id)
+    area = get_worker_area(user_id)
 
     if action == "on":
-        text = f"🟢 Сотрудник {worker_name} — Вышел на смену {platform}"
+        text = f"🟢 Сотрудник {worker_name} — Вышел на смену {area}"
     else:
-        text = f"🔴 Сотрудник {worker_name} — Завершил(-а) смену {platform}"
+        text = f"🔴 Сотрудник {worker_name} — Завершил(-а) смену {area}"
 
     try:
         await bot.send_message(STAFF_GROUP_ID, text)
