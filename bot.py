@@ -26,6 +26,23 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 TOKEN = os.getenv("TOKEN")
 DIGISELLER_COOKIE = os.getenv("COOKIE")
 
+STAFF_GROUP_ID = int(os.getenv("STAFF_GROUP_ID", "0"))
+
+DISPLAY_NAMES = {
+    781922474: "Диля",
+    8177004956: "Костя",
+    8225013907: "Кайсар",
+    5646910006: "Миша",
+    7443195793: "Тима",
+    7135999120: "Расул",
+    1920853728: "Эльвира",
+    5493517866: "Бекболат",
+    1312771702: "Максат",
+    844359525: "Сико",
+    742038308: "Далхат",
+    1294614140: "Диас",
+}
+
 MSK_TZ = ZoneInfo("Europe/Moscow")
 
 DIGISELLER_NEGATIVE_URL = "https://my.digiseller.com/inside/responses.asp?gb=2&shop=-1"
@@ -56,8 +73,26 @@ ADMIN_IDS = [781922474, 135479524, 5384930958]
 # =========================================================
 # ВОРКЕРЫ ПО ПЛАТФОРМАМ
 # =========================================================
-AI_WORKERS = [8225013907, 8177004956, 781922474, 5384930958, 1920853728, 844359525, 1294614140, 135479524, 1323864732, 7443195793]
-STEAM_WORKERS = [7135999120, 742038308, 5384930958, 135479524, 1312771702, 5493517866]
+AI_WORKERS = [
+    8177004956,   # Костя
+    781922474,    # Диля
+    7443195793,   # Тима
+    1294614140,   # Диас
+    844359525,    # Сико
+    5646910006,   # Миша
+    8225013907,   # Кайсар
+]
+
+STEAM_WORKERS = [
+    742038308,    # Далхат
+    5493517866,   # Бекболат
+    1312771702,   # Максат
+    7135999120,   # Расул
+]
+
+FANPAY_WORKERS = [
+    1920853728,   # Эльвира
+]
 
 # =========================================================
 # СМЕНЫ
@@ -704,6 +739,8 @@ def update_profile_from_user(user) -> None:
 
 
 def get_platform_name(user_id: int) -> str:
+    if user_id in FANPAY_WORKERS:
+        return "FanPay"
     if user_id in AI_WORKERS:
         return "AI"
     if user_id in STEAM_WORKERS:
@@ -882,8 +919,25 @@ def get_profile_text(user_id: int) -> str:
 
 def get_short_user_label(user_id: int) -> str:
     profile = USER_PROFILES.get(str(user_id), {})
-    username = profile.get("username") or str(user_id)
-    return f"@{username}"
+
+    if user_id in DISPLAY_NAMES:
+        return DISPLAY_NAMES[user_id]
+
+    username = (profile.get("username") or "").strip()
+    first_name = (profile.get("first_name") or "").strip()
+    last_name = (profile.get("last_name") or "").strip()
+
+    if username:
+        return f"@{username}"
+
+    full_name = f"{first_name} {last_name}".strip()
+    if full_name:
+        return full_name
+
+    if first_name:
+        return first_name
+
+    return str(user_id)
 
 
 def get_platform_users(platform: str) -> List[int]:
@@ -1108,6 +1162,23 @@ def build_not_read_text() -> str:
         lines.append(f"• {get_short_user_label(uid)} | {get_platform_name(uid)}")
 
     return "\n".join(lines)
+
+async def notify_staff_group_shift(bot: Bot, user_id: int, action: str) -> None:
+    if not STAFF_GROUP_ID:
+        return
+
+    worker_name = get_short_user_label(user_id)
+    platform = get_platform_name(user_id)
+
+    if action == "on":
+        text = f"🟢 Сотрудник {worker_name} — Вышел на смену {platform}"
+    else:
+        text = f"🔴 Сотрудник {worker_name} — Завершил(-а) смену {platform}"
+
+    try:
+        await bot.send_message(STAFF_GROUP_ID, text)
+    except Exception as e:
+        logging.warning(f"Ошибка отправки в группу: {e}")
 
 # =========================================================
 # КЛАВИАТУРЫ
@@ -1522,27 +1593,27 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
                 )
             except Exception:
                 pass
+await notify_staff_group_shift(bot, user_id, "on")
+ return "\n".join(messages)
 
-    return "\n".join(messages)
 
-
-async def process_shift_off(user_id: int) -> str:
+async def process_shift_off(user_id: int, bot: Bot | None = None) -> str:
     ensure_shift_user(user_id)
     now = msk_now()
     user_shift = SHIFT_STATUS[str(user_id)]
 
     if not user_shift.get("is_on_shift", False):
-        return "🔴 Вы и так не отмечены как сотрудник на смене."
+        return "🔴 Вы и так не на смене."
 
     user_shift["is_on_shift"] = False
     user_shift["last_shift_off"] = now.strftime("%Y-%m-%d %H:%M:%S")
     user_shift["current_shift_key"] = ""
     save_shift_status(SHIFT_STATUS)
 
-    return (
-        "🔴 Вы ушли со смены.\n"
-        f"🕒 Время: {now.strftime('%H:%M:%S')} МСК"
-    )
+    if bot:
+        await notify_staff_group_shift(bot, user_id, "off")
+
+    return f"🔴 Вы ушли со смены\n🕒 {now.strftime('%H:%M:%S')} МСК"
 
 
 async def auto_check_absent_workers(bot: Bot):
@@ -1822,6 +1893,30 @@ async def menu_handler(message: Message):
     ensure_shift_user(message.chat.id)
     await message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin(message.chat.id)))
 
+async def remove_fine_handler(message: Message):
+    if not is_admin(message.chat.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.answer("Использование:\n/remove_fine ID номер")
+        return
+
+    uid = int(parts[1])
+    index = int(parts[2]) - 1
+
+    user_fines = [f for f in FINES if int(f["user_id"]) == uid]
+
+    if index < 0 or index >= len(user_fines):
+        await message.answer("❌ Неверный номер")
+        return
+
+    fine = user_fines[index]
+    FINES.remove(fine)
+    save_fines(FINES)
+
+    await message.answer(f"✅ Штраф снят у {get_short_user_label(uid)}")
+
 
 async def instructions_handler(message: Message):
     await message.answer("📚 Выберите раздел инструкций:", reply_markup=services_keyboard())
@@ -1916,9 +2011,7 @@ async def shift_on_handler(message: Message):
 
 
 async def shift_off_handler(message: Message):
-    update_profile_from_user(message.from_user)
-    ensure_shift_user(message.chat.id)
-    text = await process_shift_off(message.chat.id)
+    text = await process_shift_off(message.chat.id, message.bot)
     await message.answer(text)
 
 
@@ -2260,9 +2353,7 @@ async def shift_on_btn_handler(callback: CallbackQuery):
 
 
 async def shift_off_btn_handler(callback: CallbackQuery):
-    update_profile_from_user(callback.from_user)
-    ensure_shift_user(callback.from_user.id)
-    text = await process_shift_off(callback.from_user.id)
+    text = await process_shift_off(callback.from_user.id, callback.bot)
     await callback.message.answer(text)
     await callback.answer()
 
@@ -2492,6 +2583,7 @@ async def main():
     dp.message.register(watch_dialogs_on_handler, Command("watch_dialogs_on"))
     dp.message.register(watch_dialogs_off_handler, Command("watch_dialogs_off"))
     dp.message.register(news_status_handler, Command("news_status"))
+    dp.message.register(remove_fine_handler, Command("remove_fine"))
 
     # text buttons
     dp.message.register(btn_instructions, F.text == "📚 Инструкции")
