@@ -1877,11 +1877,10 @@ async def monitor_announcements(bot: Bot):
 # COMMAND HANDLERS
 # =========================================================
 async def start_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     user_id = message.chat.id
-    username = message.from_user.username
-    first_name = message.from_user.first_name or ""
-    last_name = message.from_user.last_name or ""
-    full_name = f"{first_name} {last_name}".strip()
 
     update_profile_from_user(message.from_user)
     ensure_shift_user(user_id)
@@ -1916,9 +1915,15 @@ async def start_handler(message: Message):
 
 
 async def menu_handler(message: Message):
-    ensure_shift_user(message.chat.id)
-    await message.answer("🏠 Главное меню", reply_markup=main_menu_keyboard(is_admin(message.chat.id)))
+    if message.chat.type != "private":
+        return
 
+    ensure_shift_user(message.chat.id)
+    await message.answer(
+        "🏠 Главное меню",
+        reply_markup=main_menu_keyboard(is_admin(message.chat.id))
+    )
+    
 async def remove_fine_handler(message: Message):
     if not is_admin(message.chat.id):
         return
@@ -1945,7 +1950,13 @@ async def remove_fine_handler(message: Message):
 
 
 async def instructions_handler(message: Message):
-    await message.answer("📚 Выберите раздел инструкций:", reply_markup=services_keyboard())
+    if message.chat.type != "private":
+        return
+
+    await message.answer(
+        "📚 Выберите раздел инструкций:",
+        reply_markup=services_keyboard()
+    )
 
 
 async def id_handler(message: Message):
@@ -1953,15 +1964,26 @@ async def id_handler(message: Message):
 
 
 async def profile_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     ensure_shift_user(message.chat.id)
     update_profile_from_user(message.from_user)
     is_on = SHIFT_STATUS[str(message.chat.id)]["is_on_shift"]
-    await message.answer(get_profile_text(message.chat.id), reply_markup=profile_inline_keyboard(is_on))
+
+    await message.answer(
+        get_profile_text(message.chat.id),
+        reply_markup=profile_inline_keyboard(is_on)
+    )
 
 
 async def my_fines_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     user_id = message.chat.id
     user_fines = get_user_fines(user_id)
+
     if not user_fines:
         await message.answer("💸 У вас пока нет штрафов.")
         return
@@ -1971,10 +1993,14 @@ async def my_fines_handler(message: Message):
         lines.append(
             f"• {fine['created_at']} | {fine['amount']} руб | {fine['reason']}"
         )
+
     await message.answer("\n".join(lines))
 
 
 async def my_week_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     await message.answer(build_my_week_text(message.chat.id))
 
 
@@ -2030,13 +2056,23 @@ async def workers_steam_handler(message: Message):
 
 
 async def shift_on_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     update_profile_from_user(message.from_user)
     ensure_shift_user(message.chat.id)
+
     text = await process_shift_on(message.chat.id, message.bot)
     await message.answer(text)
 
 
 async def shift_off_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
+    update_profile_from_user(message.from_user)
+    ensure_shift_user(message.chat.id)
+
     text = await process_shift_off(message.chat.id, message.bot)
     await message.answer(text)
 
@@ -2109,14 +2145,23 @@ async def load_forecast_handler(message: Message):
 
 
 async def today_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     await message.answer(build_day_schedule_text(today_msk_str()))
 
 
 async def tomorrow_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     await message.answer(build_day_schedule_text(tomorrow_msk_str()))
 
 
 async def week_handler(message: Message):
+    if message.chat.type != "private":
+        return
+
     await message.answer(build_week_schedule_text())
 
 
@@ -2262,42 +2307,75 @@ async def admin_news_text_catcher(message: Message):
 # TEXT BUTTONS
 # =========================================================
 async def btn_instructions(message: Message):
+    if message.chat.type != "private":
+        return
+
     await instructions_handler(message)
 
 
 async def btn_profile(message: Message):
+    if message.chat.type != "private":
+        return
+
     await profile_handler(message)
 
 
 async def btn_my_week(message: Message):
+    if message.chat.type != "private":
+        return
+
     await my_week_handler(message)
 
 
 async def btn_my_fines(message: Message):
+    if message.chat.type != "private":
+        return
+
     await my_fines_handler(message)
 
 
 async def btn_shift_on(message: Message):
+    if message.chat.type != "private":
+        return
+
     await shift_on_handler(message)
 
 
 async def btn_shift_off(message: Message):
+    if message.chat.type != "private":
+        return
+
     await shift_off_handler(message)
 
 
 async def btn_today(message: Message):
+    if message.chat.type != "private":
+        return
+
     await today_handler(message)
 
 
 async def btn_tomorrow(message: Message):
+    if message.chat.type != "private":
+        return
+
     await tomorrow_handler(message)
 
 
 async def btn_need_admin(message: Message):
-    await message.answer("🚨 Выберите тип обращения к админу:", reply_markup=need_admin_keyboard())
+    if message.chat.type != "private":
+        return
+
+    await message.answer(
+        "🚨 Выберите тип обращения к админу:",
+        reply_markup=need_admin_keyboard()
+    )
 
 
 async def btn_admin_panel(message: Message):
+    if message.chat.type != "private":
+        return
+
     await admin_handler(message)
 
 # =========================================================
