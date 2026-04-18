@@ -1910,6 +1910,7 @@ async def start_handler(message: Message):
         return
 
     user_id = message.chat.id
+    username = message.from_user.username
 
     update_profile_from_user(message.from_user)
     ensure_shift_user(user_id)
