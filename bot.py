@@ -1680,6 +1680,10 @@ async def auto_check_absent_workers(bot: Bot):
 
         await asyncio.sleep(ABSENT_CHECK_INTERVAL_SECONDS)
 
+async def chat_id_handler(message: Message):
+    await message.answer(f"Chat ID: {message.chat.id}")
+
+
 # =========================================================
 # REQUESTS
 # =========================================================
@@ -2582,6 +2586,7 @@ async def main():
     dp.message.register(watch_dialogs_off_handler, Command("watch_dialogs_off"))
     dp.message.register(news_status_handler, Command("news_status"))
     dp.message.register(remove_fine_handler, Command("remove_fine"))
+    dp.message.register(chat_id_handler, Command("chat_id"))
 
     # text buttons
     dp.message.register(btn_instructions, F.text == "📚 Инструкции")
