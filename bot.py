@@ -1548,36 +1548,66 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
     now = msk_now()
     user_shift = SHIFT_STATUS[str(user_id)]
 
-    # Определяем тип смены
-    hour = now.hour
-    minute = now.minute
+    now_time = now.time()
 
-    if 11 <= hour < 17 or (hour == 17 and minute < 30):
+    # Определяем смену + окно раннего входа
+    if time(10, 50) <= now_time < time(17, 30):
         shift_name = "Дневная"
+        shift_type = "day"
         shift_start = now.replace(hour=11, minute=0, second=0, microsecond=0)
-    else:
-        shift_name = "Вечерняя"
-        if hour < 11:
-            shift_start = now.replace(hour=17, minute=30, second=0, microsecond=0)
-        else:
-            shift_start = now.replace(hour=17, minute=30, second=0, microsecond=0)
+        allowed_early = now.replace(hour=10, minute=50, second=0, microsecond=0)
+        late_border = now.replace(hour=11, minute=15, second=0, microsecond=0)
 
-    # Проверка опоздания
-    late_delta = (now - shift_start).total_seconds() / 60
-    late = late_delta > 15
-    exact_bonus = late_delta <= 1
+    elif time(17, 20) <= now_time <= time(23, 59, 59):
+        shift_name = "Вечерняя"
+        shift_type = "evening"
+        shift_start = now.replace(hour=17, minute=30, second=0, microsecond=0)
+        allowed_early = now.replace(hour=17, minute=20, second=0, microsecond=0)
+        late_border = now.replace(hour=17, minute=45, second=0, microsecond=0)
+
+    elif time(0, 0) <= now_time < time(10, 50):
+        return (
+            "⏸ Сейчас ещё рано для выхода на смену.\n"
+            "🌞 На дневную можно отмечаться с 10:50 МСК\n"
+            "🌙 На вечернюю можно отмечаться с 17:20 МСК"
+        )
+    else:
+        return "⏸ Сейчас нет активного окна для выхода на смену."
+
+    # Проверка графика
+    scheduled_today = get_schedule_for_day(today_msk_str()).get(shift_type, [])
+    if user_id not in scheduled_today:
+        return f"⚠️ У вас сейчас нет смены в графике ({shift_name})."
+
+    if user_shift.get("is_on_shift", False):
+        return "🟢 Вы уже отмечены как сотрудник на смене."
+
+    # Опоздание
+    late = now > late_border
+
+    # Точный бонус только если не раньше старта и не позже 1 минуты после старта
+    exact_bonus = shift_start <= now <= (shift_start + timedelta(minutes=1))
 
     # Первый на смене
     today_key = now.strftime("%Y-%m-%d") + "_" + shift_name
     is_first_on_shift = not any(
-        s.get("current_shift_key") == today_key
+        s.get("current_shift_key") == today_key and s.get("is_on_shift", False)
         for s in SHIFT_STATUS.values()
     )
 
     # Обновляем статус
     user_shift["is_on_shift"] = True
     user_shift["last_shift_on"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    user_shift["last_shift_type"] = shift_name
+    user_shift["last_shift_date"] = today_msk_str()
+    user_shift["last_late"] = late
     user_shift["current_shift_key"] = today_key
+
+    if late:
+        user_shift["streak"] = 0
+    else:
+        user_shift["streak"] = int(user_shift.get("streak", 0)) + 1
+
     save_shift_status(SHIFT_STATUS)
 
     messages = [
@@ -1585,7 +1615,9 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
         f"🕒 Время отметки: {now.strftime('%H:%M:%S')} МСК"
     ]
 
-    # Логика штрафов / бонусов
+    if now < shift_start:
+        messages.append("⏳ Вы отметились заранее — это нормально.")
+
     if late:
         add_fine(user_id, LATE_FINE_AMOUNT, f"Опоздание на {shift_name} смену", "auto_late")
         messages.append(f"⚠️ Вы опоздали. Штраф: {LATE_FINE_AMOUNT} руб")
@@ -1600,22 +1632,19 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
         add_score(user_id, 1, "Первый на смене")
         messages.append("🚀 Бонус +1: вы первый на этой смене")
 
-    # Уведомление админам о штрафе
     if late:
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
                     f"⚠️ Авто-штраф за опоздание\n"
-                    f"{get_short_user_label(user_id)} | {get_platform_name(user_id)}\n"
+                    f"{get_short_user_label(user_id)} | {get_worker_area(user_id)}\n"
                     f"💸 {LATE_FINE_AMOUNT} руб | {shift_name} смена"
                 )
             except Exception:
                 pass
 
-    # Уведомление в общую группу
     await notify_staff_group_shift(bot, user_id, "on")
-
     return "\n".join(messages)
 
 
@@ -2303,6 +2332,64 @@ async def admin_news_text_catcher(message: Message):
         f"⏱ Время: {deadline_minutes} мин"
     )
 
+async def cancel_fine_amount_handler(message: Message):
+    if not is_admin(message.chat.id):
+        return
+
+    parts = message.text.split(maxsplit=3)
+    if len(parts) < 4:
+        await message.answer(
+            "Использование:\n"
+            "/cancel_fine_amount ID сумма причина\n\n"
+            "Пример:\n"
+            "/cancel_fine_amount 781922474 500 ошибка бота"
+        )
+        return
+
+    try:
+        uid = int(parts[1])
+        amount = int(parts[2])
+    except ValueError:
+        await message.answer("❌ ID и сумма должны быть числами.")
+        return
+
+    reason = parts[3]
+
+    # Ищем самый свежий штраф на такую сумму
+    matching_fines = [
+        f for f in FINES
+        if int(f["user_id"]) == uid and int(f["amount"]) == amount
+    ]
+
+    if not matching_fines:
+        await message.answer(
+            f"❌ У сотрудника {get_short_user_label(uid)} нет штрафа на сумму {amount} руб."
+        )
+        return
+
+    matching_fines.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    fine_to_remove = matching_fines[0]
+
+    FINES.remove(fine_to_remove)
+    save_fines(FINES)
+
+    await message.answer(
+        f"✅ Штраф аннулирован\n"
+        f"👤 Сотрудник: {get_short_user_label(uid)}\n"
+        f"💸 Сумма: {amount} руб\n"
+        f"📝 Причина отмены: {reason}"
+    )
+
+    try:
+        await message.bot.send_message(
+            uid,
+            f"✅ Один из ваших штрафов был аннулирован администратором.\n"
+            f"💸 Сумма: {amount} руб\n"
+            f"📝 Причина: {reason}"
+        )
+    except Exception:
+        pass
+
 # =========================================================
 # TEXT BUTTONS
 # =========================================================
@@ -2689,6 +2776,7 @@ async def main():
     dp.message.register(news_status_handler, Command("news_status"))
     dp.message.register(remove_fine_handler, Command("remove_fine"))
     dp.message.register(chat_id_handler, Command("chat_id"))
+    dp.message.register(cancel_fine_amount_handler, Command("cancel_fine_amount"))
 
     # text buttons
     dp.message.register(btn_instructions, F.text == "📚 Инструкции")
