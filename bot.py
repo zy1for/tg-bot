@@ -2390,6 +2390,32 @@ async def cancel_fine_amount_handler(message: Message):
     except Exception:
         pass
 
+async def user_fines_handler(message: Message):
+    if not is_admin(message.chat.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование:\n/user_fines ID")
+        return
+
+    uid = int(parts[1])
+
+    user_fines = [f for f in FINES if int(f["user_id"]) == uid]
+
+    if not user_fines:
+        await message.answer("📭 У сотрудника нет штрафов.")
+        return
+
+    lines = [f"📋 Штрафы {get_short_user_label(uid)}:\n"]
+
+    for i, fine in enumerate(user_fines, start=1):
+        lines.append(
+            f"{i}. {fine['amount']} руб | {fine['reason']} | {fine['created_at']}"
+        )
+
+    await message.answer("\n".join(lines))
+
 # =========================================================
 # TEXT BUTTONS
 # =========================================================
@@ -2777,6 +2803,7 @@ async def main():
     dp.message.register(remove_fine_handler, Command("remove_fine"))
     dp.message.register(chat_id_handler, Command("chat_id"))
     dp.message.register(cancel_fine_amount_handler, Command("cancel_fine_amount"))
+    dp.message.register(user_fines_handler, Command("user_fines"))
 
     # text buttons
     dp.message.register(btn_instructions, F.text == "📚 Инструкции")
