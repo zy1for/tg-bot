@@ -1572,12 +1572,7 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
             "🌙 На вечернюю можно отмечаться с 17:20 МСК"
         )
     else:
-        return "⏸ Сейчас нет активного окна для выхода на смену."
-
-    # Проверка графика
-    scheduled_today = get_schedule_for_day(today_msk_str()).get(shift_type, [])
-    if user_id not in scheduled_today:
-        return f"⚠️ У вас сейчас нет смены в графике ({shift_name})."
+        return "⏸ Сейчас нет активного окна для выхода на смену.
 
     if user_shift.get("is_on_shift", False):
         return "🟢 Вы уже отмечены как сотрудник на смене."
