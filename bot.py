@@ -44,6 +44,19 @@ DISPLAY_NAMES = {
     1163420256: "Ибрагим",
 }
 
+PAYOUT_DETAILS = {
+    781922474: {"method": "Bybit UID", "value": "537839240"},
+    8177004956: {"method": "BEP 20", "value": "0xeb1a4220b91639a5329a7bf6561f7d4b3d9b7510"},
+    8225013907: {"method": "TRC20", "value": "THxwJnnmW1hqscfDsU1smavjymbHf9nVSf"},
+    7443195793: {"method": "Bybit UID", "value": "UID_ТИМА"},
+    7135999120: {"method": "Bybit UID", "value": "183775115"},
+    5493517866: {"method": "TRC20", "value": "TYLsRecAieLVQrwcFmAq6pvmXjBuYmvpWZ"},
+    1312771702: {"method": "TRC20", "value": "TYLsRecAieLVQrwcFmAq6pvmXjBuYmvpWZ"},
+    844359525: {"method": "TRC20", "value": "TB9mg6HvajcAtizSAbZigpWY2ybt77UMDF"},
+    742038308: {"method": "Bybit UID", "value": "40880549"},
+    1294614140: {"method": "Bybit UID", "value": "UID_ДИАС"},
+}
+
 WORKER_AREAS = {
     781922474: "Plati",        # Диля
     8177004956: "GGsel",       # Костя
@@ -1247,10 +1260,32 @@ def admin_main_inline_keyboard():
     builder.button(text="📊 Штрафы за неделю", callback_data="admin_weekly_fines")
     builder.button(text="🗓 Кто на смене сейчас", callback_data="admin_who_should_work")
     builder.button(text="📈 Прогноз загрузки", callback_data="admin_load_forecast")
+    builder.button(text="💸 Выплаты", callback_data="admin_payouts")
     builder.button(text="📨 Проверить диалоги", callback_data="admin_dialogs_check")
     builder.button(text="📢 Рассылка", callback_data="admin_news_start")
     builder.button(text="❌ Кто не ознакомился", callback_data="admin_not_read")
     builder.adjust(2)
+    return builder.as_markup()
+
+def payouts_users_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    all_workers = sorted(set(AI_WORKERS + STEAM_WORKERS))
+    for user_id in all_workers:
+        builder.button(
+            text=f"{get_short_user_label(user_id)} | {get_worker_area(user_id)}",
+            callback_data=f"payout_user:{user_id}"
+        )
+
+    builder.button(text="⬅️ Назад", callback_data="admin_back")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def payout_card_keyboard(user_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Оплатил", callback_data=f"payout_paid:{user_id}")
+    builder.button(text="⬅️ К списку", callback_data="admin_payouts")
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -2412,6 +2447,74 @@ async def user_fines_handler(message: Message):
 
     await message.answer("\n".join(lines))
 
+async def admin_payouts_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.answer(
+        "💸 Выплаты\n\nВыберите сотрудника:",
+        reply_markup=payouts_users_keyboard()
+    )
+    await callback.answer()
+
+async def payout_user_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+
+    payout_info = PAYOUT_DETAILS.get(user_id, {})
+    method = payout_info.get("method", "Не указано")
+    value = payout_info.get("value", "Не указано")
+
+    text = (
+        f"💸 Выплата сотруднику\n\n"
+        f"👤 Сотрудник: {get_short_user_label(user_id)}\n"
+        f"🧩 Площадка: {get_worker_area(user_id)}\n"
+        f"📨 Способ: {method}\n"
+        f"🆔/Адрес: {value}"
+    )
+
+    await callback.message.answer(
+        text,
+        reply_markup=payout_card_keyboard(user_id)
+    )
+    await callback.answer()
+
+async def payout_paid_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+
+    await callback.message.answer(
+        f"✅ Отмечено: зарплата отправлена {get_short_user_label(user_id)}"
+    )
+
+    try:
+        await callback.bot.send_message(
+            user_id,
+            "💸 Вам поступила зарплата. Проверьте баланс."
+        )
+    except Exception:
+        pass
+
+    await callback.answer("Отмечено")
+
+async def admin_back_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.answer(
+        "👑 Админ-панель",
+        reply_markup=admin_main_inline_keyboard()
+    )
+    await callback.answer()
+
 # =========================================================
 # TEXT BUTTONS
 # =========================================================
@@ -2843,6 +2946,11 @@ async def main():
     dp.callback_query.register(news_platform_handler, F.data.startswith("news_platform:"))
     dp.callback_query.register(news_deadline_handler, F.data.startswith("news_deadline:"))
     dp.callback_query.register(news_cancel_handler, F.data == "news_cancel")
+    dp.callback_query.register(admin_payouts_handler, F.data == "admin_payouts")
+    
+    dp.callback_query.register(payout_user_handler, F.data.startswith("payout_user:"))
+    dp.callback_query.register(payout_paid_handler, F.data.startswith("payout_paid:"))
+    dp.callback_query.register(admin_back_handler, F.data == "admin_back")
 
     # tasks
     asyncio.create_task(monitor_negative_reviews(bot))
