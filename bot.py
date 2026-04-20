@@ -805,6 +805,8 @@ def get_platform_name(user_id: int) -> str:
         return "AI"
     if user_id in STEAM_WORKERS:
         return "Steam"
+    if user_id in XBOX_WORKERS:
+        return "Xbox"
     return "Не назначена"
 
 
@@ -1386,9 +1388,10 @@ def support_reply_keyboard(user_id: int):
 def shift_area_keyboard(user_id: int):
     builder = InlineKeyboardBuilder()
 
-    # Steam-воркеры не выбирают площадку, у них одна зона
     if user_id in STEAM_WORKERS:
         builder.button(text="🎮 Steam", callback_data="shift_area:Steam")
+    elif user_id in XBOX_WORKERS:
+        builder.button(text="🟢 Xbox", callback_data="shift_area:Xbox")
     else:
         builder.button(text="🟦 Plati", callback_data="shift_area:Plati")
         builder.button(text="🟨 GGsel", callback_data="shift_area:GGsel")
@@ -2431,12 +2434,14 @@ async def admin_news_text_catcher(message: Message):
     )
 
 async def support_and_fine_text_catcher(message: Message):
+    logging.warning(
+        f"support_and_fine_text_catcher called: user={message.chat.id}, "
+        f"state={SUPPORT_STATE.get(str(message.chat.id))}, "
+        f"text={message.text}"
+    )
+
     state = SUPPORT_STATE.get(str(message.chat.id))
     if not state:
-        return
-
-    text = (message.text or "").strip()
-    if not text:
         return
 
     mode = state.get("mode")
@@ -2707,11 +2712,6 @@ async def btn_my_fines(message: Message):
 async def btn_shift_on(message: Message):
     if message.chat.type != "private":
         return
-
-    await message.answer(
-        "📍 Выберите площадку, на которую выходите:",
-        reply_markup=shift_area_keyboard(message.chat.id)
-    )
 
     await shift_on_handler(message)
 
