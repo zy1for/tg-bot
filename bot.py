@@ -1010,12 +1010,22 @@ def get_short_user_label(user_id: int) -> str:
 
 def get_platform_users(platform: str) -> List[int]:
     platform = platform.lower()
+
     if platform == "ai":
         return AI_WORKERS
+
     if platform == "steam":
         return STEAM_WORKERS
+
+    if platform == "fanpay":
+        return FANPAY_WORKERS
+
+    if platform == "xbox":
+        return XBOX_WORKERS
+
     if platform == "all":
-        return sorted(set(AI_WORKERS + STEAM_WORKERS))
+        return sorted(set(AI_WORKERS + STEAM_WORKERS + FANPAY_WORKERS + XBOX_WORKERS))
+
     return []
 
 
@@ -1365,12 +1375,13 @@ def news_platform_keyboard():
     return builder.as_markup()
 
 
-def news_deadline_keyboard():
+def news_platform_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="⏱ 15 мин", callback_data="news_deadline:15")
-    builder.button(text="⏱ 30 мин", callback_data="news_deadline:30")
-    builder.button(text="⏱ 60 мин", callback_data="news_deadline:60")
-    builder.button(text="⏱ 120 мин", callback_data="news_deadline:120")
+    builder.button(text="🤖 AI", callback_data="news_platform:ai")
+    builder.button(text="🎮 Steam", callback_data="news_platform:steam")
+    builder.button(text="🟧 FanPay", callback_data="news_platform:fanpay")
+    builder.button(text="🟢 Xbox", callback_data="news_platform:xbox")
+    builder.button(text="🌍 Всем", callback_data="news_platform:all")
     builder.button(text="❌ Отмена", callback_data="news_cancel")
     builder.adjust(2)
     return builder.as_markup()
