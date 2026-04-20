@@ -2014,7 +2014,10 @@ async def start_handler(message: Message):
         return
 
     user_id = message.chat.id
-    username = message.from_user.username
+    username = message.from_user.username or ""
+    first_name = message.from_user.first_name or ""
+    last_name = message.from_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
 
     update_profile_from_user(message.from_user)
     ensure_shift_user(user_id)
@@ -2026,26 +2029,13 @@ async def start_handler(message: Message):
 
     await message.answer(
         f"✅ Бот активирован.\n"
-        f"🆔 Ваш user ID: {user_id}\n\n"
+        f"🆔 Ваш user ID: {user_id}\n"
+        f"👤 Username: @{username if username else 'нет'}\n"
+        f"📛 Имя: {full_name or 'не указано'}\n\n"
         f"Теперь вам будут приходить отзывы, новости и служебные уведомления.\n"
         f"Ниже доступно главное меню 👇",
         reply_markup=main_menu_keyboard(is_admin(user_id))
     )
-
-    admin_text = (
-        "👤 Сотрудник нажал /start\n\n"
-        f"🆔 ID: {user_id}\n"
-        f"👤 Username: @{username if username else 'нет'}\n"
-        f"📛 Имя: {full_name or 'не указано'}\n"
-        f"🧩 Платформа: {get_platform_name(user_id)}\n"
-        f"📌 Статус: {'Новый пользователь' if is_new else 'Повторный /start'}"
-    )
-
-    for admin_id in ADMIN_IDS:
-        try:
-            await message.bot.send_message(admin_id, admin_text)
-        except Exception as e:
-            logging.warning(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
 
 async def menu_handler(message: Message):
