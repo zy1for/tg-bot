@@ -3172,8 +3172,8 @@ async def main():
     dp.message.register(btn_admin_panel, F.text == "👑 Админ панель")
 
     # admin news text fallback
-    dp.message.register(admin_news_text_catcher, F.text)
     dp.message.register(support_and_fine_text_catcher, F.text)
+    dp.message.register(admin_news_text_catcher, F.text)
 
     # callbacks
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
