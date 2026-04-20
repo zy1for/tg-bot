@@ -85,6 +85,8 @@ DIALOGS_CHECK_INTERVAL_SECONDS = 10
 ABSENT_CHECK_INTERVAL_SECONDS = 60
 
 USERS_FILE = "users.json"
+SHIFT_AREA_FILE = "shift_area.json"
+SUPPORT_STATE_FILE = "support_state.json"
 SENT_REVIEWS_FILE = "sent_reviews.json"
 ANNOUNCEMENTS_FILE = "announcements.json"
 SHIFT_STATUS_FILE = "shift_status.json"
@@ -636,6 +638,21 @@ def load_users() -> Set[int]:
 
 def save_users(users: Set[int]) -> None:
     save_json_file(USERS_FILE, sorted(users))
+
+def load_shift_area() -> Dict[str, str]:
+    return load_json_file(SHIFT_AREA_FILE, {})
+
+
+def save_shift_area(data: Dict[str, str]) -> None:
+    save_json_file(SHIFT_AREA_FILE, data)
+
+
+def load_support_state() -> Dict[str, dict]:
+    return load_json_file(SUPPORT_STATE_FILE, {})
+
+
+def save_support_state(data: Dict[str, dict]) -> None:
+    save_json_file(SUPPORT_STATE_FILE, data)
 
 
 def load_sent_reviews() -> Set[str]:
@@ -1205,7 +1222,7 @@ async def notify_staff_group_shift(bot: Bot, user_id: int, action: str) -> None:
         return
 
     worker_name = get_short_user_label(user_id)
-    area = get_worker_area(user_id)
+    area = get_current_shift_area(user_id)
 
     if action == "on":
         text = f"🟢 Сотрудник {worker_name} — Вышел на смену {area}"
@@ -1258,6 +1275,7 @@ def admin_main_inline_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="👥 Пользователи", callback_data="admin_users")
     builder.button(text="📊 Штрафы за неделю", callback_data="admin_weekly_fines")
+    builder.button(text="⚠️ Выдать штраф", callback_data="admin_fine_menu")
     builder.button(text="🗓 Кто на смене сейчас", callback_data="admin_who_should_work")
     builder.button(text="📈 Прогноз загрузки", callback_data="admin_load_forecast")
     builder.button(text="💸 Выплаты", callback_data="admin_payouts")
@@ -1279,6 +1297,27 @@ def payouts_users_keyboard():
 
     builder.button(text="⬅️ Назад", callback_data="admin_back")
     builder.adjust(1)
+    return builder.as_markup()
+
+def fine_users_keyboard():
+    builder = InlineKeyboardBuilder()
+    all_workers = sorted(set(AI_WORKERS + STEAM_WORKERS + FANPAY_WORKERS))
+    for user_id in all_workers:
+        builder.button(
+            text=f"{get_short_user_label(user_id)} | {get_worker_area(user_id)}",
+            callback_data=f"fine_user:{user_id}"
+        )
+    builder.button(text="⬅️ Назад", callback_data="admin_back")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def fine_amount_keyboard(user_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="500", callback_data=f"fine_amount:{user_id}:500")
+    builder.button(text="1000", callback_data=f"fine_amount:{user_id}:1000")
+    builder.button(text="⬅️ Назад", callback_data="admin_fine_menu")
+    builder.adjust(2)
     return builder.as_markup()
 
 def payout_card_keyboard(user_id: int):
@@ -1332,6 +1371,27 @@ def need_admin_keyboard():
     builder.adjust(2)
     return builder.as_markup()
 
+def support_reply_keyboard(user_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="↩️ Ответить", callback_data=f"support_reply:{user_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def shift_area_keyboard(user_id: int):
+    builder = InlineKeyboardBuilder()
+
+    # Steam-воркеры не выбирают площадку, у них одна зона
+    if user_id in STEAM_WORKERS:
+        builder.button(text="🎮 Steam", callback_data="shift_area:Steam")
+    else:
+        builder.button(text="🟦 Plati", callback_data="shift_area:Plati")
+        builder.button(text="🟨 GGsel", callback_data="shift_area:GGsel")
+        builder.button(text="🟧 FanPay AI", callback_data="shift_area:FanPay AI")
+
+    builder.button(text="❌ Отмена", callback_data="shift_area_cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
 
 def main_menu_keyboard(is_admin_user: bool = False):
     rows = [
@@ -1339,7 +1399,7 @@ def main_menu_keyboard(is_admin_user: bool = False):
         [KeyboardButton(text="📊 Моя неделя"), KeyboardButton(text="💸 Мои штрафы")],
         [KeyboardButton(text="🟢 Вышел на смену"), KeyboardButton(text="🔴 Ушёл со смены")],
         [KeyboardButton(text="🗓 Сегодня"), KeyboardButton(text="📅 Завтра")],
-        [KeyboardButton(text="🚨 Нужен админ")],
+        [KeyboardButton(text="🚨 Нужен админ"), KeyboardButton(text="✉️ Написать админу")],
     ]
     if is_admin_user:
         rows.append([KeyboardButton(text="👑 Админ панель")])
@@ -1582,7 +1642,6 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
 
     now = msk_now()
     user_shift = SHIFT_STATUS[str(user_id)]
-
     now_time = now.time()
 
     # Определяем смену + окно раннего входа
@@ -1590,14 +1649,12 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
         shift_name = "Дневная"
         shift_type = "day"
         shift_start = now.replace(hour=11, minute=0, second=0, microsecond=0)
-        allowed_early = now.replace(hour=10, minute=50, second=0, microsecond=0)
         late_border = now.replace(hour=11, minute=15, second=0, microsecond=0)
 
     elif time(17, 20) <= now_time <= time(23, 59, 59):
         shift_name = "Вечерняя"
         shift_type = "evening"
         shift_start = now.replace(hour=17, minute=30, second=0, microsecond=0)
-        allowed_early = now.replace(hour=17, minute=20, second=0, microsecond=0)
         late_border = now.replace(hour=17, minute=45, second=0, microsecond=0)
 
     elif time(0, 0) <= now_time < time(10, 50):
@@ -1612,26 +1669,24 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
     if user_shift.get("is_on_shift", False):
         return "🟢 Вы уже отмечены как сотрудник на смене."
 
-    # Опоздание
-    late = now > late_border
+    # ВАЖНО: единый формат ключа смены
+    shift_key = f"{today_msk_str()}:{shift_type}"
 
-    # Точный бонус только если не раньше старта и не позже 1 минуты после старта
+    late = now > late_border
     exact_bonus = shift_start <= now <= (shift_start + timedelta(minutes=1))
 
     # Первый на смене
-    today_key = now.strftime("%Y-%m-%d") + "_" + shift_name
     is_first_on_shift = not any(
-        s.get("current_shift_key") == today_key and s.get("is_on_shift", False)
+        s.get("current_shift_key") == shift_key and s.get("is_on_shift", False)
         for s in SHIFT_STATUS.values()
     )
 
-    # Обновляем статус
     user_shift["is_on_shift"] = True
     user_shift["last_shift_on"] = now.strftime("%Y-%m-%d %H:%M:%S")
     user_shift["last_shift_type"] = shift_name
     user_shift["last_shift_date"] = today_msk_str()
     user_shift["last_late"] = late
-    user_shift["current_shift_key"] = today_key
+    user_shift["current_shift_key"] = shift_key
 
     if late:
         user_shift["streak"] = 0
@@ -1642,7 +1697,8 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
 
     messages = [
         f"🟢 Вы вышли на {shift_name} смену.",
-        f"🕒 Время отметки: {now.strftime('%H:%M:%S')} МСК"
+        f"🕒 Время отметки: {now.strftime('%H:%M:%S')} МСК",
+        f"📍 Площадка: {get_current_shift_area(user_id)}"
     ]
 
     if now < shift_start:
@@ -1668,7 +1724,7 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
                 await bot.send_message(
                     admin_id,
                     f"⚠️ Авто-штраф за опоздание\n"
-                    f"{get_short_user_label(user_id)} | {get_worker_area(user_id)}\n"
+                    f"{get_short_user_label(user_id)} | {get_current_shift_area(user_id)}\n"
                     f"💸 {LATE_FINE_AMOUNT} руб | {shift_name} смена"
                 )
             except Exception:
@@ -1676,7 +1732,6 @@ async def process_shift_on(user_id: int, bot: Bot) -> str:
 
     await notify_staff_group_shift(bot, user_id, "on")
     return "\n".join(messages)
-
 
 async def process_shift_off(user_id: int, bot: Bot | None = None) -> str:
     ensure_shift_user(user_id)
@@ -1690,6 +1745,10 @@ async def process_shift_off(user_id: int, bot: Bot | None = None) -> str:
     user_shift["last_shift_off"] = now.strftime("%Y-%m-%d %H:%M:%S")
     user_shift["current_shift_key"] = ""
     save_shift_status(SHIFT_STATUS)
+
+    if str(user_id) in SHIFT_AREAS:
+        SHIFT_AREAS.pop(str(user_id), None)
+        save_shift_area(SHIFT_AREAS)
 
     if bot:
         await notify_staff_group_shift(bot, user_id, "off")
@@ -2122,8 +2181,10 @@ async def shift_on_handler(message: Message):
     update_profile_from_user(message.from_user)
     ensure_shift_user(message.chat.id)
 
-    text = await process_shift_on(message.chat.id, message.bot)
-    await message.answer(text)
+    await message.answer(
+        "📍 Выберите площадку, на которую выходите:",
+        reply_markup=shift_area_keyboard(message.chat.id)
+    )
 
 
 async def shift_off_handler(message: Message):
@@ -2515,6 +2576,17 @@ async def admin_back_handler(callback: CallbackQuery):
     )
     await callback.answer()
 
+async def btn_write_admin(message: Message):
+    if message.chat.type != "private":
+        return
+
+    SUPPORT_STATE[str(message.chat.id)] = {
+        "mode": "awaiting_employee_message"
+    }
+    save_support_state(SUPPORT_STATE)
+
+    await message.answer("✉️ Напишите сообщение администратору одним сообщением.")
+
 # =========================================================
 # TEXT BUTTONS
 # =========================================================
@@ -2549,6 +2621,11 @@ async def btn_my_fines(message: Message):
 async def btn_shift_on(message: Message):
     if message.chat.type != "private":
         return
+
+    await message.answer(
+        "📍 Выберите площадку, на которую выходите:",
+        reply_markup=shift_area_keyboard(message.chat.id)
+    )
 
     await shift_on_handler(message)
 
@@ -2665,6 +2742,22 @@ async def shift_on_btn_handler(callback: CallbackQuery):
     ensure_shift_user(callback.from_user.id)
     text = await process_shift_on(callback.from_user.id, callback.bot)
     await callback.message.answer(text)
+    await callback.answer()
+
+async def shift_area_callback_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    area = callback.data.split(":", 1)[1]
+
+    SHIFT_AREAS[str(user_id)] = area
+    save_shift_area(SHIFT_AREAS)
+
+    text = await process_shift_on(user_id, callback.bot)
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+async def shift_area_cancel_handler(callback: CallbackQuery):
+    await callback.message.answer("❌ Выход на смену отменён.")
     await callback.answer()
 
 
@@ -2858,6 +2951,74 @@ async def req_admin_cancel_handler(callback: CallbackQuery):
     await callback.message.answer("❌ Запрос админу отменён.")
     await callback.answer()
 
+async def admin_fine_menu_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.answer(
+        "⚠️ Выберите сотрудника для штрафа:",
+        reply_markup=fine_users_keyboard()
+    )
+    await callback.answer()
+
+
+async def fine_user_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+
+    await callback.message.answer(
+        f"⚠️ Сотрудник: {get_short_user_label(user_id)}\n"
+        f"🧩 Площадка: {get_worker_area(user_id)}\n\n"
+        f"Выберите сумму штрафа:",
+        reply_markup=fine_amount_keyboard(user_id)
+    )
+    await callback.answer()
+
+
+async def fine_amount_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    _, _, user_id_str, amount_str = callback.data.split(":")
+    user_id = int(user_id_str)
+    amount = int(amount_str)
+
+    SUPPORT_STATE[str(callback.from_user.id)] = {
+        "mode": "awaiting_fine_reason",
+        "target_user_id": user_id,
+        "fine_amount": amount
+    }
+    save_support_state(SUPPORT_STATE)
+
+    await callback.message.answer(
+        f"📝 Введите причину штрафа для {get_short_user_label(user_id)}\n"
+        f"💸 Сумма: {amount} руб"
+    )
+    await callback.answer()
+
+async def support_reply_handler(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    target_user_id = int(callback.data.split(":")[1])
+
+    SUPPORT_STATE[str(callback.from_user.id)] = {
+        "mode": "awaiting_admin_reply",
+        "target_user_id": target_user_id
+    }
+    save_support_state(SUPPORT_STATE)
+
+    await callback.message.answer(
+        f"✉️ Введите ответ для {get_short_user_label(target_user_id)}"
+    )
+    await callback.answer()
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -2903,6 +3064,7 @@ async def main():
     dp.message.register(chat_id_handler, Command("chat_id"))
     dp.message.register(cancel_fine_amount_handler, Command("cancel_fine_amount"))
     dp.message.register(user_fines_handler, Command("user_fines"))
+    
 
     # text buttons
     dp.message.register(btn_instructions, F.text == "📚 Инструкции")
@@ -2914,10 +3076,12 @@ async def main():
     dp.message.register(btn_today, F.text == "🗓 Сегодня")
     dp.message.register(btn_tomorrow, F.text == "📅 Завтра")
     dp.message.register(btn_need_admin, F.text == "🚨 Нужен админ")
+    dp.message.register(btn_write_admin, F.text == "✉️ Написать админу")
     dp.message.register(btn_admin_panel, F.text == "👑 Админ панель")
 
     # admin news text fallback
     dp.message.register(admin_news_text_catcher, F.text)
+    dp.message.register(support_and_fine_text_catcher, F.text)
 
     # callbacks
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
@@ -2951,6 +3115,14 @@ async def main():
     dp.callback_query.register(payout_user_handler, F.data.startswith("payout_user:"))
     dp.callback_query.register(payout_paid_handler, F.data.startswith("payout_paid:"))
     dp.callback_query.register(admin_back_handler, F.data == "admin_back")
+    dp.callback_query.register(shift_area_callback_handler, F.data.startswith("shift_area:"))
+    dp.callback_query.register(shift_area_cancel_handler, F.data == "shift_area_cancel")
+
+    dp.callback_query.register(admin_fine_menu_handler, F.data == "admin_fine_menu")
+    dp.callback_query.register(fine_user_handler, F.data.startswith("fine_user:"))
+    dp.callback_query.register(fine_amount_handler, F.data.startswith("fine_amount:"))
+
+    dp.callback_query.register(support_reply_handler, F.data.startswith("support_reply:"))
 
     # tasks
     asyncio.create_task(monitor_negative_reviews(bot))
