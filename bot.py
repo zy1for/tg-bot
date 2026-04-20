@@ -2452,6 +2452,10 @@ async def admin_news_text_catcher(message: Message):
     )
 
 async def support_and_fine_text_catcher(message: Message):
+    # Если у админа сейчас идёт рассылка, не перехватываем текст здесь
+    if is_admin(message.chat.id) and PENDING_NEWS.get(str(message.chat.id)):
+        return
+
     state = SUPPORT_STATE.get(str(message.chat.id))
     if not state:
         return
@@ -2461,6 +2465,7 @@ async def support_and_fine_text_catcher(message: Message):
         return
 
     mode = state.get("mode")
+    ...
 
     # =====================================================
     # Сотрудник пишет админу
