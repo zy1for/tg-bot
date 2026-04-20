@@ -2550,6 +2550,11 @@ async def support_and_fine_text_catcher(message: Message):
         )
         return
 
+async def clear_my_state_handler(message: Message):
+    SUPPORT_STATE.pop(str(message.chat.id), None)
+    save_support_state(SUPPORT_STATE)
+    await message.answer("✅ Ваш support state очищен.")
+
 async def cancel_fine_amount_handler(message: Message):
     if not is_admin(message.chat.id):
         return
@@ -3185,6 +3190,7 @@ async def main():
     dp.message.register(chat_id_handler, Command("chat_id"))
     dp.message.register(cancel_fine_amount_handler, Command("cancel_fine_amount"))
     dp.message.register(user_fines_handler, Command("user_fines"))
+    dp.message.register(clear_my_state_handler, Command("clear_state"))
     
 
     # text buttons
