@@ -1387,6 +1387,17 @@ def news_platform_keyboard():
     return builder.as_markup()
 
 
+def news_deadline_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⏱ 15 мин", callback_data="news_deadline:15")
+    builder.button(text="⏱ 30 мин", callback_data="news_deadline:30")
+    builder.button(text="⏱ 60 мин", callback_data="news_deadline:60")
+    builder.button(text="⏱ 120 мин", callback_data="news_deadline:120")
+    builder.button(text="❌ Отмена", callback_data="news_cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def need_admin_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="❗ Срочно", callback_data="req_admin:urgent")
