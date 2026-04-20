@@ -2455,18 +2455,19 @@ async def support_and_fine_text_catcher(message: Message):
     # Сотрудник пишет админу
     if mode == "awaiting_employee_message":
         for admin_id in ADMIN_IDS:
-            try:
-                await message.bot.send_message(
-                    admin_id,
-                    f"✉️ Сообщение от сотрудника\n\n"
-                    f"👤 {get_short_user_label(message.chat.id)}\n"
-                    f"🧩 Площадка: {get_current_shift_area(message.chat.id)}\n"
-                    f"🆔 ID: {message.chat.id}\n\n"
-                    f"💬 {text}",
-                    reply_markup=support_reply_keyboard(message.chat.id)
-                )
-            except Exception:
-                pass
+    try:
+        await message.bot.send_message(
+            admin_id,
+            f"✉️ Сообщение от сотрудника\n\n"
+            f"👤 {get_short_user_label(message.chat.id)}\n"
+            f"🧩 Площадка: {get_current_shift_area(message.chat.id)}\n"
+            f"🆔 ID: {message.chat.id}\n\n"
+            f"💬 {text}",
+            reply_markup=support_reply_keyboard(message.chat.id)
+        )
+        logging.warning(f"support message sent to admin {admin_id}")
+    except Exception as e:
+        logging.warning(f"support message FAILED for admin {admin_id}: {e}")
 
         SUPPORT_STATE.pop(str(message.chat.id), None)
         save_support_state(SUPPORT_STATE)
