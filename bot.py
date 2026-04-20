@@ -2440,42 +2440,50 @@ async def admin_news_text_catcher(message: Message):
     )
 
 async def support_and_fine_text_catcher(message: Message):
-    logging.warning(
-        f"support_and_fine_text_catcher called: user={message.chat.id}, "
-        f"state={SUPPORT_STATE.get(str(message.chat.id))}, "
-        f"text={message.text}"
-    )
-
     state = SUPPORT_STATE.get(str(message.chat.id))
     if not state:
         return
 
+    text = (message.text or "").strip()
+    if not text:
+        return
+
     mode = state.get("mode")
 
+    # =====================================================
     # Сотрудник пишет админу
+    # =====================================================
     if mode == "awaiting_employee_message":
+        delivered = 0
+
         for admin_id in ADMIN_IDS:
-    try:
-        await message.bot.send_message(
-            admin_id,
-            f"✉️ Сообщение от сотрудника\n\n"
-            f"👤 {get_short_user_label(message.chat.id)}\n"
-            f"🧩 Площадка: {get_current_shift_area(message.chat.id)}\n"
-            f"🆔 ID: {message.chat.id}\n\n"
-            f"💬 {text}",
-            reply_markup=support_reply_keyboard(message.chat.id)
-        )
-        logging.warning(f"support message sent to admin {admin_id}")
-    except Exception as e:
-        logging.warning(f"support message FAILED for admin {admin_id}: {e}")
+            try:
+                await message.bot.send_message(
+                    admin_id,
+                    f"✉️ Сообщение от сотрудника\n\n"
+                    f"👤 {get_short_user_label(message.chat.id)}\n"
+                    f"🧩 Площадка: {get_current_shift_area(message.chat.id)}\n"
+                    f"🆔 ID: {message.chat.id}\n\n"
+                    f"💬 {text}",
+                    reply_markup=support_reply_keyboard(message.chat.id)
+                )
+                delivered += 1
+                logging.warning(f"support message sent to admin {admin_id}")
+            except Exception as e:
+                logging.warning(f"support FAILED for admin {admin_id}: {e}")
 
         SUPPORT_STATE.pop(str(message.chat.id), None)
         save_support_state(SUPPORT_STATE)
 
-        await message.answer("✅ Сообщение отправлено администратору.")
+        if delivered > 0:
+            await message.answer("✅ Сообщение отправлено администратору.")
+        else:
+            await message.answer("❌ Админы не получили сообщение. Пусть напишут /start боту.")
         return
 
+    # =====================================================
     # Админ отвечает сотруднику
+    # =====================================================
     if mode == "awaiting_admin_reply" and is_admin(message.chat.id):
         target_user_id = int(state["target_user_id"])
 
@@ -2484,7 +2492,8 @@ async def support_and_fine_text_catcher(message: Message):
                 target_user_id,
                 f"📩 Ответ администратора:\n\n{text}"
             )
-        except Exception:
+        except Exception as e:
+            logging.warning(f"reply failed: {e}")
             await message.answer("❌ Не удалось отправить ответ сотруднику.")
             return
 
@@ -2494,7 +2503,9 @@ async def support_and_fine_text_catcher(message: Message):
         await message.answer("✅ Ответ сотруднику отправлен.")
         return
 
+    # =====================================================
     # Админ вводит причину штрафа
+    # =====================================================
     if mode == "awaiting_fine_reason" and is_admin(message.chat.id):
         target_user_id = int(state["target_user_id"])
         amount = int(state["fine_amount"])
@@ -2508,8 +2519,8 @@ async def support_and_fine_text_catcher(message: Message):
                 f"💸 Сумма: {amount} руб\n"
                 f"📝 Причина: {text}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"fine notify failed: {e}")
 
         SUPPORT_STATE.pop(str(message.chat.id), None)
         save_support_state(SUPPORT_STATE)
