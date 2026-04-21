@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timedelta, time
 from typing import Dict, List, Set, Tuple
 from zoneinfo import ZoneInfo
@@ -2428,7 +2429,8 @@ async def admin_news_text_catcher(message: Message):
 
     target_users = get_platform_users(platform)
 
-    announcement_id = str(int(msk_now().timestamp()))
+    announcement_id = str(uuid.uuid4())
+
     ANNOUNCEMENTS[announcement_id] = {
         "id": announcement_id,
         "platform": platform,
