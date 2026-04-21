@@ -2407,6 +2407,12 @@ async def news_status_handler(message: Message):
 
 
 async def admin_news_text_catcher(message: Message):
+    logging.warning(
+        f"admin_news_text_catcher called: admin={message.chat.id}, "
+        f"draft={PENDING_NEWS.get(str(message.chat.id))}, "
+        f"text={message.text}"
+    )
+
     if not is_admin(message.chat.id):
         return
 
@@ -2416,19 +2422,28 @@ async def admin_news_text_catcher(message: Message):
 
     text = (message.text or "").strip()
     if not text:
+        await message.answer("❌ Текст рассылки пустой.")
         return
 
-    platform = draft.get("platform")
-    deadline_minutes = draft.get("deadline_minutes")
+    platform = draft.get("platform", "all")
+    deadline_minutes = int(draft.get("deadline_minutes", 60))
 
-    if not platform or not deadline_minutes:
-        await message.answer("❌ Недостаточно данных для рассылки.")
-        return
-
-    announcement_id = create_announcement(platform, deadline_minutes, text)
     target_users = get_platform_users(platform)
 
+    announcement_id = str(int(msk_now().timestamp()))
+    ANNOUNCEMENTS[announcement_id] = {
+        "id": announcement_id,
+        "platform": platform,
+        "text": text,
+        "deadline_minutes": deadline_minutes,
+        "created_at": msk_now().strftime("%Y-%m-%d %H:%M:%S"),
+        "acked_by": []
+    }
+    save_announcements(ANNOUNCEMENTS)
+
     sent_count = 0
+    failed_count = 0
+
     for user_id in target_users:
         try:
             await message.bot.send_message(
@@ -2440,16 +2455,19 @@ async def admin_news_text_catcher(message: Message):
                 reply_markup=acknowledge_keyboard(announcement_id)
             )
             sent_count += 1
-        except Exception:
-            continue
+            logging.warning(f"news sent to user {user_id}")
+        except Exception as e:
+            failed_count += 1
+            logging.warning(f"news FAILED for user {user_id}: {e}")
 
     PENDING_NEWS.pop(str(message.chat.id), None)
     save_pending_news(PENDING_NEWS)
 
     await message.answer(
-        f"✅ Рассылка отправлена.\n"
+        f"✅ Рассылка обработана.\n"
         f"🌍 Платформа: {platform.upper()}\n"
-        f"👥 Получателей: {sent_count}\n"
+        f"👥 Успешно: {sent_count}\n"
+        f"❌ Ошибок: {failed_count}\n"
         f"⏱ Время: {deadline_minutes} мин"
     )
 
@@ -3209,8 +3227,8 @@ async def main():
     dp.message.register(btn_admin_panel, F.text == "👑 Админ панель")
 
     # admin news text fallback
-    dp.message.register(support_and_fine_text_catcher, F.text)
     dp.message.register(admin_news_text_catcher, F.text)
+    dp.message.register(support_and_fine_text_catcher, F.text)
 
     # callbacks
     dp.callback_query.register(service_handler, F.data.startswith("service:"))
